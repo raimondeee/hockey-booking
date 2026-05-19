@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ben Stadey Hockey Development | Private Training</title>
+    <style>
+        /* Base Reset & ELEV802 Dark Aesthetic */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial Black', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: #0b0b0b;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        /* Navigation Bar */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 25px 50px;
+            background-color: rgba(11, 11, 11, 0.95);
+            border-bottom: 1px solid #222;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 24px;
+            letter-spacing: 2px;
+            font-weight: 900;
+            text-transform: uppercase;
+        }
+
+        .logo span {
+            color: #0070ba; /* PayPal brand blue accent line */
+        }
+
+        .nav-links a {
+            color: #999;
+            text-decoration: none;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-left: 30px;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: #fff;
+        }
+
+        /* Hero / Header Section */
+        .hero {
+            text-align: center;
+            padding: 100px 20px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            text-transform: uppercase;
+            letter-spacing: -1px;
+            line-height: 1.1;
+            margin-bottom: 20px;
+        }
+
+        .hero p {
+            font-family: 'Segoe UI', sans-serif;
+            color: #888;
+            font-size: 18px;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Dynamic Grid Layout inspired by ELEV802 program blocks */
+        .training-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            max-width: 1200px;
+            margin: 40px auto 100px;
+            padding: 0 40px;
+        }
+
+        .card {
+            background-color: #121212;
+            border: 1px solid #1a1a1a;
+            padding: 40px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: #333;
+        }
+
+        .card h2 {
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+        }
+
+        .card p {
+            font-family: 'Segoe UI', sans-serif;
+            color: #aaaaaa;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+
+        /* High-Impact ELEV802 Styled Buttons */
+        .cta-btn {
+            display: inline-block;
+            background-color: #ffffff;
+            color: #000000;
+            text-decoration: none;
+            text-align: center;
+            padding: 16px 32px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: bold;
+            border-radius: 2px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .cta-btn:hover {
+            background-color: #0070ba;
+            color: #ffffff;
+        }
+
+        .card .cta-btn {
+            width: 100%;
+        }
+
+        /* Footer Element */
+        footer {
+            border-top: 1px solid #1a1a1a;
+            padding: 40px 50px;
+            text-align: center;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 12px;
+            color: #444;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <nav>
+        <div class="logo">COACH <span>BEN</span></div>
+        <div class="nav-links">
+            <a href="#" class="active">Private Training</a>
+            <a href="/calendar.html">Live Schedule</a>
+        </div>
+    </nav>
+
+    <!-- Main Title Content Block -->
+    <section class="hero">
+        <h1>Private On-Ice Training</h1>
+        <p>Tailored development paths to optimize individual skating posture, deceptive skills, and game-speed execution metrics.</p>
+    </section>
+
+    <!-- Content Sections mimicking private packages & ice rental options -->
+    <section class="training-grid">
+        
+        <!-- Block 1: Individual Skill Clinics -->
+        <div class="card">
+            <div>
+                <h2>On-Ice Skill Clinics</h2>
+                <p>High-intensity, multi-player development tracks capped strictly at 25 players. Focus zones target power skating mechanics, tactical positional reads, and explosive shooting releases.</p>
+            </div>
+            <a href="/calendar.html" class="cta-btn">Book Clinic Spot</a>
+        </div>
+
+        <!-- Block 2: Small Group / 1-on-1 Request -->
+        <div class="card">
+            <div>
+                <h2>Small Group Sessions</h2>
+                <p>Custom 55-minute structural windows engineered directly to target specific performance deficiencies. High energy, rapid video feedback cycles, and maximum puck tracking loops.</p>
+            </div>
+            <a href="/calendar.html" class="cta-btn">View Open Slots</a>
+        </div>
+
+        <!-- Block 3: Team / Facility Space Rental -->
+        <div class="card">
+            <div>
+                <h2>Team Custom Ice</h2>
+                <p>Reserve structured system blocks for full squads looking to run advanced transition strategy, special team powerplays, or small-area competition tournaments.</p>
+            </div>
+            <a href="/calendar.html" class="cta-btn">Rent Rink Ice</a>
+        </div>
+
+    </section>
+
+    <footer>
+        &copy; 2026 Ben Stadey Hockey Training Systems. All Rights Reserved. Protected Payments via PayPal.
+    </footer>
+
+</body>
+</html>
