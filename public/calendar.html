@@ -9,25 +9,34 @@
         body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; }
         .header-bar { display: flex; justify-content: space-between; align-items: center; max-width: 940px; margin: 0 auto 20px; }
         #calendar { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.2); z-index: 1000; width: 400px; }
+        .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.2); z-index: 1000; width: 420px; max-height: 90vh; overflow-y: auto; }
         .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: 999; }
-        .input-group { margin-bottom: 15px; }
-        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        .input-group input, .input-group select { width: 100%; padding: 8px; box-sizing: border-box; }
+        .input-group { margin-bottom: 12px; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
+        .input-group input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        
+        /* Waiver Scroll Box Styling */
+        .waiver-box { background: #f1f1f1; border: 1px solid #ddd; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #555; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
+        .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 15px; font-size: 13px; font-weight: bold; }
+        .waiver-checkbox-group input { margin-top: 3px; cursor: pointer; }
+
         .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn-primary { background: #0070ba; color: white; }
+        .btn-primary:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
         .btn-secondary { background: #6c757d; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-right: 10px; }
         .btn-danger { background: #dc3545; color: white; margin-top: 10px; width: 100%; }
         .close-btn { float: right; cursor: pointer; font-size: 20px; }
         .admin-badge { background: #ffc107; color: black; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; display: none; margin-right: 10px; }
+        
+        /* PayPal Overlay Blocker to manage absolute control over user validation */
+        #paypal-button-wrapper { position: relative; }
+        .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
     </style>
 </head>
 <body>
 
 <div class="header-bar">
-    <div>
-        <a href="/index.html" class="btn-secondary">← Back to Home</a>
-    </div>
+    <div><a href="/index.html" class="btn-secondary">← Back to Home</a></div>
     <div>
         <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
@@ -36,21 +45,14 @@
 
 <div id="calendar"></div>
 
-<!-- Modal Overlay -->
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
 
 <!-- Login Modal -->
 <div class="modal" id="loginModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Coach Authentication</h3>
-    <div class="input-group">
-        <label>Username</label>
-        <input type="text" id="adminUser" value="coach">
-    </div>
-    <div class="input-group">
-        <label>Password</label>
-        <input type="password" id="adminPass">
-    </div>
+    <div class="input-group"><label>Username</label><input type="text" id="adminUser" value="coach"></div>
+    <div class="input-group"><label>Password</label><input type="password" id="adminPass"></div>
     <button class="btn btn-primary" style="width: 100%;" onclick="submitLogin()">Login</button>
 </div>
 
@@ -58,13 +60,49 @@
 <div class="modal" id="bookingModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3 id="modalTitle">Book Session</h3>
-    <p id="modalStatus"></p>
+    <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
     
     <div id="parentFormFields">
-        <div class="input-group"><label>Player Name</label><input type="text" id="playerName"></div>
-        <div class="input-group"><label>Parent Email</label><input type="email" id="parentEmail"></div>
-        <div id="paypal-button-container"></div>
-        <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()">Join Waitlist (Free)</button>
+        <div class="input-group"><label>Parent/Guardian Full Name *</label><input type="text" id="parentName" oninput="validateForm()"></div>
+        <div class="input-group"><label>Parent Email *</label><input type="email" id="parentEmail" oninput="validateForm()"></div>
+        <div class="input-group"><label>Student / Player Name *</label><input type="text" id="playerName" oninput="validateForm()"></div>
+        
+        <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
+        <div class="waiver-box">
+            <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
+            By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Apex Hockey Development (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant:<br><br>
+            <strong>1. Assumption of Risk</strong><br>
+            I understand that participation in hockey training and athletic activities involves inherent risks, including but not limited to: Falls, collisions, and contact with other participants; Injuries caused by pucks, sticks, boards, nets, or ice surfaces; Muscle strains, sprains, fractures, concussions, and other physical injuries; Risks associated with physical exertion and athletic conditioning. I voluntarily assume all risks associated with participation in these Programs.<br><br>
+            <strong>2. Medical Fitness</strong><br>
+            I certify that the participant is physically fit and able to participate in hockey-related activities. I understand it is my responsibility to consult with a physician regarding any medical concerns prior to participation. I agree to disclose any medical conditions, allergies, injuries, or limitations that may affect participation.<br><br>
+            <strong>3. Release of Liability</strong><br>
+            To the fullest extent permitted by law, I release, waive, and discharge Apex Hockey Development, its owners, coaches, trainers, employees, contractors, volunteers, affiliates, and facility operators from any and all claims, liabilities, damages, demands, costs, or causes of action arising out of or related to participation in the Programs, including injury, illness, property damage, or loss, except in cases of gross negligence or willful misconduct.<br><br>
+            <strong>4. Emergency Medical Treatment</strong><br>
+            In the event of an emergency, I authorize Apex Hockey Development and its representatives to obtain emergency medical treatment for the participant if I cannot be reached immediately. I understand that I am financially responsible for any medical expenses incurred.<br><br>
+            <strong>5. Equipment Responsibility</strong><br>
+            I understand that properly fitted hockey equipment is required for participation unless otherwise specified by the coach. I accept responsibility for ensuring the participant uses safe and appropriate equipment.<br><br>
+            <strong>6. Conduct & Safety</strong><br>
+            Participants are expected to behave respectfully and follow all coach instructions and facility rules. Apex Hockey Development reserves the right to remove any participant from a session for unsafe, disruptive, or inappropriate behavior without refund.<br><br>
+            <strong>7. Cancellation & Refund Policy</strong><br>
+            Sessions may be subject to cancellation or rescheduling due to weather, facility issues, illness, emergencies, or scheduling conflicts. Refunds, credits, and rescheduling policies are determined solely by Apex Hockey Development. By booking, I acknowledge and accept the posted cancellation policy.<br><br>
+            <strong>8. Photo & Video Release</strong><br>
+            I grant permission for photographs and videos taken during training sessions to be used by Apex Hockey Development for promotional, educational, and social media purposes unless I submit a written opt-out request prior to participation.<br><br>
+            <strong>9. Acknowledgment of Agreement</strong><br>
+            By checking the acknowledgment box during registration and proceeding with booking/payment, I confirm that: I am the parent/legal guardian of the participant, or I am 18 years of age or older; I have read and understand this waiver and release; I voluntarily agree to these terms; I understand that this agreement is legally binding.
+        </div>
+
+        <div class="waiver-checkbox-group">
+            <input type="checkbox" id="waiverCheckbox" onchange="validateForm()">
+            <label for="waiverCheckbox">I have read and agree to the Waiver & Release of Liability terms.</label>
+        </div>
+
+        <!-- Secure wrapped payment button container -->
+        <div id="paypal-button-wrapper">
+            <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all required fields and accept the waiver terms to unlock payment.')"></div>
+            <div id="paypal-button-container"></div>
+        </div>
+        
+        <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
 
     <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
@@ -74,22 +112,10 @@
 <div class="modal" id="createSlotModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Create New Training Time Slot</h3>
-    <div class="input-group">
-        <label>Event Title</label>
-        <input type="text" id="newTitle" value="Elite Defense Clinic">
-    </div>
-    <div class="input-group">
-        <label>Start Date & Time</label>
-        <input type="datetime-local" id="newStart">
-    </div>
-    <div class="input-group">
-        <label>End Date & Time</label>
-        <input type="datetime-local" id="newEnd">
-    </div>
-    <div class="input-group">
-        <label>Session Cost ($)</label>
-        <input type="number" id="newPrice" value="45.00">
-    </div>
+    <div class="input-group"><label>Event Title</label><input type="text" id="newTitle" value="Elite Defense Clinic"></div>
+    <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
+    <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
+    <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="45.00"></div>
     <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
 </div>
 
@@ -100,17 +126,15 @@
     let calendar;
     let selectedEvent = null;
     let adminToken = null;
+    let paypalActionsInstance = null; // References active state of PayPal layout parameters
 
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
             selectable: true,
-            
-            // Mobile Optimization parameters placed securely here
             longPressDelay: 350,       
             selectLongPressDelay: 350, 
-            
             validRange: function(nowDate) {
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
@@ -123,57 +147,36 @@
                             title: `${session.title} (${session.active_count}/30)`,
                             start: session.start_time,
                             end: session.end_time,
-                            extendedProps: {
-                                activeCount: session.active_count,
-                                waitlistCount: session.waitlist_count,
-                                price: session.price
-                            }
+                            extendedProps: { activeCount: session.active_count, waitlistCount: session.waitlist_count, price: session.price }
                         }));
                         successCallback(events);
                     });
             },
-            eventClick: function(info) {
-                openBookingModal(info.event);
-            },
-            select: function(info) {
-                if (adminToken) {
-                    openCreateSlotModal(info.startStr);
-                }
-            }
+            eventClick: function(info) { openBookingModal(info.event); },
+            select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } }
         });
         calendar.render();
     });
 
-    function toggleAuthField() {
-        if(adminToken) {
-            adminToken = null;
-            document.getElementById('adminBadge').style.display = 'none';
-            document.getElementById('authBtn').innerText = "Coach Portal";
-            alert("Logged out of coach control panel.");
-        } else {
-            document.getElementById('overlay').style.display = 'block';
-            document.getElementById('loginModal').style.display = 'block';
-        }
-    }
+    function validateForm() {
+        const parentName = document.getElementById('parentName').value.trim();
+        const parentEmail = document.getElementById('parentEmail').value.trim();
+        const playerName = document.getElementById('playerName').value.trim();
+        const waiverChecked = document.getElementById('waiverCheckbox').checked;
 
-    function submitLogin() {
-        fetch('/api/admin/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if(data.success) {
-                adminToken = data.token;
-                document.getElementById('adminBadge').style.display = 'inline-block';
-                document.getElementById('authBtn').innerText = "Logout";
-                closeAllModals();
-                alert("Coach access verified. On phone: tap and hold a square to create slots. Tap an event banner to delete it.");
-            } else {
-                alert("Authorization failed.");
-            }
-        }).catch(() => alert("Could not complete authentication."));
+        const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked;
+
+        // 1. Control Waitlist Button State
+        document.getElementById('waitlistBtn').disabled = !isFormValid;
+
+        // 2. Control PayPal SDK Core Buttons via Actions Interface & Visually with structural Overlays
+        if (isFormValid) {
+            document.getElementById('paypalDisabledOverlay').style.display = 'none';
+            if (paypalActionsInstance) paypalActionsInstance.enable();
+        } else {
+            document.getElementById('paypalDisabledOverlay').style.display = 'block';
+            if (paypalActionsInstance) paypalActionsInstance.disable();
+        }
     }
 
     function openBookingModal(event) {
@@ -181,6 +184,12 @@
         const props = event.extendedProps;
         document.getElementById('modalTitle').innerText = event.title;
         document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/30 | Waitlist: ${props.waitlistCount}/15`;
+
+        // Reset input interface values on every single open invocation
+        document.getElementById('parentName').value = "";
+        document.getElementById('parentEmail').value = "";
+        document.getElementById('playerName').value = "";
+        document.getElementById('waiverCheckbox').checked = false;
 
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('bookingModal').style.display = 'block';
@@ -193,62 +202,25 @@
             document.getElementById('deleteSessionBtn').style.display = 'none';
             
             if (props.activeCount >= 30) {
-                document.getElementById('paypal-button-container').style.display = 'none';
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
             } else {
-                document.getElementById('paypal-button-container').style.display = 'block';
+                document.getElementById('paypal-button-wrapper').style.display = 'block';
                 document.getElementById('waitlistBtn').style.display = 'none';
             }
         }
+        validateForm(); // Force standard default locking layout configuration
     }
 
-    function openCreateSlotModal(dateStr) {
-        document.getElementById('newStart').value = `${dateStr}T17:00`;
-        document.getElementById('newEnd').value = `${dateStr}T18:30`;
-        document.getElementById('overlay').style.display = 'block';
-        document.getElementById('createSlotModal').style.display = 'block';
-    }
-
-    function submitCreateSlot() {
-        const payload = {
-            token: adminToken,
-            title: document.getElementById('newTitle').value,
-            start_time: document.getElementById('newStart').value,
-            end_time: document.getElementById('newEnd').value,
-            price: parseFloat(document.getElementById('newPrice').value)
-        };
-
-        fetch('/api/admin/sessions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        }).then(res => res.json()).then(() => {
-            closeAllModals();
-            calendar.refetchEvents();
-        });
-    }
-
-    function deleteCurrentSession() {
-        if(!confirm("Are you sure you want to permanently cancel this session and drop all registered players?")) return;
-
-        fetch(`/api/admin/sessions/${selectedEvent.id}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: adminToken })
-        }).then(res => res.json()).then(() => {
-            closeAllModals();
-            calendar.refetchEvents();
-        });
-    }
-
-    function closeAllModals() {
-        document.getElementById('overlay').style.display = 'none';
-        document.getElementById('loginModal').style.display = 'none';
-        document.getElementById('bookingModal').style.display = 'none';
-        document.getElementById('createSlotModal').style.display = 'none';
-    }
-
+    // PayPal buttons implementation tracking validation updates
     paypal.Buttons({
+        onInit: function(data, actions) {
+            paypalActionsInstance = actions;
+            paypalActionsInstance.disable(); // Always initialize layout inside a safe locked state
+        },
+        onClick: function() {
+            validateForm();
+        },
         createOrder: function(data, actions) {
             return actions.order.create({
                 purchase_units: [{ amount: { value: selectedEvent.extendedProps.price.toString() } }]
@@ -264,8 +236,9 @@
     function submitBooking(orderId) {
         const payload = {
             session_id: selectedEvent.id,
-            player_name: document.getElementById('playerName').value,
-            parent_email: document.getElementById('parentEmail').value,
+            player_name: document.getElementById('playerName').value.trim(),
+            parent_email: document.getElementById('parentEmail').value.trim(),
+            parent_name: document.getElementById('parentName').value.trim(), // Send parent name context as well
             paypal_order_id: orderId
         };
 
@@ -276,12 +249,73 @@
         }).then(res => res.json()).then(data => {
             alert(data.status === 'active' ? 'Spot confirmed!' : 'Roster full. Player placed on waitlist.');
             closeAllModals();
-            calendar.refetchEvents(); // Soft refreshes grid updates flawlessly
+            calendar.refetchEvents();
         });
     }
 
-    function submitWaitlist() {
-        submitBooking(null);
+    function submitWaitlist() { submitBooking(null); }
+    function openCreateSlotModal(dateStr) {
+        document.getElementById('newStart').value = `${dateStr}T17:00`;
+        document.getElementById('newEnd').value = `${dateStr}T18:30`;
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('createSlotModal').style.display = 'block';
+    }
+    function submitCreateSlot() {
+        const payload = {
+            token: adminToken,
+            title: document.getElementById('newTitle').value,
+            start_time: document.getElementById('newStart').value,
+            end_time: document.getElementById('newEnd').value,
+            price: parseFloat(document.getElementById('newPrice').value)
+        };
+        fetch('/api/admin/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+    }
+    function deleteCurrentSession() {
+        if(!confirm("Are you sure you want to permanently cancel this session?")) return;
+        fetch(`/api/admin/sessions/${selectedEvent.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+    }
+    function toggleAuthField() {
+        if(adminToken) {
+            adminToken = null;
+            document.getElementById('adminBadge').style.display = 'none';
+            document.getElementById('authBtn').innerText = "Coach Portal";
+            alert("Logged out.");
+        } else {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('loginModal').style.display = 'block';
+        }
+    }
+    function submitLogin() {
+        fetch('/api/admin/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                adminToken = data.token;
+                document.getElementById('adminBadge').style.display = 'inline-block';
+                document.getElementById('authBtn').innerText = "Logout";
+                closeAllModals();
+            } else { alert("Authorization failed."); }
+        });
+    }
+    document.getElementById('newStart').value = "";
+    document.getElementById('newEnd').value = "";
+    function closeAllModals() {
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('bookingModal').style.display = 'none';
+        document.getElementById('createSlotModal').style.display = 'none';
     }
 </script>
 </body>
