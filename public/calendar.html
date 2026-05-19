@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hockey Training Portal | Live Schedule</title>
+    <title>Ben Stadey Hockey Training | Live Schedule</title>
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; }
@@ -15,7 +15,6 @@
         .input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
         .input-group input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
         
-        /* Waiver Scroll Box Styling */
         .waiver-box { background: #f1f1f1; border: 1px solid #ddd; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #555; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
         .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 15px; font-size: 13px; font-weight: bold; }
         .waiver-checkbox-group input { margin-top: 3px; cursor: pointer; }
@@ -28,7 +27,6 @@
         .close-btn { float: right; cursor: pointer; font-size: 20px; }
         .admin-badge { background: #ffc107; color: black; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; display: none; margin-right: 10px; }
         
-        /* PayPal Overlay Blocker to manage absolute control over user validation */
         #paypal-button-wrapper { position: relative; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
     </style>
@@ -36,7 +34,10 @@
 <body>
 
 <div class="header-bar">
-    <div><a href="/index.html" class="btn-secondary">← Back to Home</a></div>
+    <div>
+        <a href="/index.html" class="btn-secondary">← Back to Home</a>
+        <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" style="color: #666; text-decoration: none; font-size: 14px; font-weight: bold; margin-left: 15px; font-family: sans-serif;">Contact Coach</a>
+    </div>
     <div>
         <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
@@ -70,23 +71,23 @@
         <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
         <div class="waiver-box">
             <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
-            By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Apex Hockey Development (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant:<br><br>
+            By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Ben Stadey Hockey Training (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant:<br><br>
             <strong>1. Assumption of Risk</strong><br>
             I understand that participation in hockey training and athletic activities involves inherent risks, including but not limited to: Falls, collisions, and contact with other participants; Injuries caused by pucks, sticks, boards, nets, or ice surfaces; Muscle strains, sprains, fractures, concussions, and other physical injuries; Risks associated with physical exertion and athletic conditioning. I voluntarily assume all risks associated with participation in these Programs.<br><br>
             <strong>2. Medical Fitness</strong><br>
             I certify that the participant is physically fit and able to participate in hockey-related activities. I understand it is my responsibility to consult with a physician regarding any medical concerns prior to participation. I agree to disclose any medical conditions, allergies, injuries, or limitations that may affect participation.<br><br>
             <strong>3. Release of Liability</strong><br>
-            To the fullest extent permitted by law, I release, waive, and discharge Apex Hockey Development, its owners, coaches, trainers, employees, contractors, volunteers, affiliates, and facility operators from any and all claims, liabilities, damages, demands, costs, or causes of action arising out of or related to participation in the Programs, including injury, illness, property damage, or loss, except in cases of gross negligence or willful misconduct.<br><br>
+            To the fullest extent permitted by law, I release, waive, and discharge Ben Stadey Hockey Training, its owners, coaches, trainers, employees, contractors, volunteers, affiliates, and facility operators from any and all claims, liabilities, damages, demands, costs, or causes of action arising out of or related to participation in the Programs, including injury, illness, property damage, or loss, except in cases of gross negligence or willful misconduct.<br><br>
             <strong>4. Emergency Medical Treatment</strong><br>
-            In the event of an emergency, I authorize Apex Hockey Development and its representatives to obtain emergency medical treatment for the participant if I cannot be reached immediately. I understand that I am financially responsible for any medical expenses incurred.<br><br>
+            In the event of an emergency, I authorize Ben Stadey Hockey Training and its representatives to obtain emergency medical treatment for the participant if I cannot be reached immediately. I understand that I am financially responsible for any medical expenses incurred.<br><br>
             <strong>5. Equipment Responsibility</strong><br>
             I understand that properly fitted hockey equipment is required for participation unless otherwise specified by the coach. I accept responsibility for ensuring the participant uses safe and appropriate equipment.<br><br>
             <strong>6. Conduct & Safety</strong><br>
-            Participants are expected to behave respectfully and follow all coach instructions and facility rules. Apex Hockey Development reserves the right to remove any participant from a session for unsafe, disruptive, or inappropriate behavior without refund.<br><br>
+            Participants are expected to behave respectfully and follow all coach instructions and facility rules. Ben Stadey Hockey Training reserves the right to remove any participant from a session for unsafe, disruptive, or inappropriate behavior without refund.<br><br>
             <strong>7. Cancellation & Refund Policy</strong><br>
-            Sessions may be subject to cancellation or rescheduling due to weather, facility issues, illness, emergencies, or scheduling conflicts. Refunds, credits, and rescheduling policies are determined solely by Apex Hockey Development. By booking, I acknowledge and accept the posted cancellation policy.<br><br>
+            Sessions may be subject to cancellation or rescheduling due to weather, facility issues, illness, emergencies, or scheduling conflicts. Refunds, credits, and rescheduling policies are determined solely by Ben Stadey Hockey Training. By booking, I acknowledge and accept the posted cancellation policy.<br><br>
             <strong>8. Photo & Video Release</strong><br>
-            I grant permission for photographs and videos taken during training sessions to be used by Apex Hockey Development for promotional, educational, and social media purposes unless I submit a written opt-out request prior to participation.<br><br>
+            I grant permission for photographs and videos taken during training sessions to be used by Ben Stadey Hockey Training for promotional, educational, and social media purposes unless I submit a written opt-out request prior to participation.<br><br>
             <strong>9. Acknowledgment of Agreement</strong><br>
             By checking the acknowledgment box during registration and proceeding with booking/payment, I confirm that: I am the parent/legal guardian of the participant, or I am 18 years of age or older; I have read and understand this waiver and release; I voluntarily agree to these terms; I understand that this agreement is legally binding.
         </div>
@@ -96,7 +97,6 @@
             <label for="waiverCheckbox">I have read and agree to the Waiver & Release of Liability terms.</label>
         </div>
 
-        <!-- Secure wrapped payment button container -->
         <div id="paypal-button-wrapper">
             <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all required fields and accept the waiver terms to unlock payment.')"></div>
             <div id="paypal-button-container"></div>
@@ -126,7 +126,7 @@
     let calendar;
     let selectedEvent = null;
     let adminToken = null;
-    let paypalActionsInstance = null; // References active state of PayPal layout parameters
+    let paypalActionsInstance = null;
 
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('calendar');
@@ -166,10 +166,8 @@
 
         const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked;
 
-        // 1. Control Waitlist Button State
         document.getElementById('waitlistBtn').disabled = !isFormValid;
 
-        // 2. Control PayPal SDK Core Buttons via Actions Interface & Visually with structural Overlays
         if (isFormValid) {
             document.getElementById('paypalDisabledOverlay').style.display = 'none';
             if (paypalActionsInstance) paypalActionsInstance.enable();
@@ -185,7 +183,6 @@
         document.getElementById('modalTitle').innerText = event.title;
         document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/30 | Waitlist: ${props.waitlistCount}/15`;
 
-        // Reset input interface values on every single open invocation
         document.getElementById('parentName').value = "";
         document.getElementById('parentEmail').value = "";
         document.getElementById('playerName').value = "";
@@ -209,27 +206,22 @@
                 document.getElementById('waitlistBtn').style.display = 'none';
             }
         }
-        validateForm(); // Force standard default locking layout configuration
+        validateForm();
     }
 
-    // PayPal buttons implementation tracking validation updates
     paypal.Buttons({
         onInit: function(data, actions) {
             paypalActionsInstance = actions;
-            paypalActionsInstance.disable(); // Always initialize layout inside a safe locked state
+            paypalActionsInstance.disable();
         },
-        onClick: function() {
-            validateForm();
-        },
+        onClick: function() { validateForm(); },
         createOrder: function(data, actions) {
             return actions.order.create({
                 purchase_units: [{ amount: { value: selectedEvent.extendedProps.price.toString() } }]
             });
         },
         onApprove: function(data, actions) {
-            return actions.order.capture().then(function(details) {
-                submitBooking(details.id);
-            });
+            return actions.order.capture().then(function(details) { submitBooking(details.id); });
         }
     }).render('#paypal-button-container');
 
@@ -238,7 +230,7 @@
             session_id: selectedEvent.id,
             player_name: document.getElementById('playerName').value.trim(),
             parent_email: document.getElementById('parentEmail').value.trim(),
-            parent_name: document.getElementById('parentName').value.trim(), // Send parent name context as well
+            parent_name: document.getElementById('parentName').value.trim(),
             paypal_order_id: orderId
         };
 
@@ -309,8 +301,6 @@
             } else { alert("Authorization failed."); }
         });
     }
-    document.getElementById('newStart').value = "";
-    document.getElementById('newEnd').value = "";
     function closeAllModals() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';

@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ben Stadey Hockey Development | Private Training</title>
+    <title>Ben Stadey Hockey Training | Private Development</title>
     <style>
-        /* Base Reset & ELEV802 Dark Aesthetic */
+        /* Base Reset & Minimalist Dark Aesthetic */
         * {
             margin: 0;
             padding: 0;
@@ -33,14 +33,14 @@
         }
 
         .logo {
-            font-size: 24px;
-            letter-spacing: 2px;
+            font-size: 22px;
+            letter-spacing: 1px;
             font-weight: 900;
             text-transform: uppercase;
         }
 
         .logo span {
-            color: #0070ba; /* PayPal brand blue accent line */
+            color: #0070ba; /* PayPal blue accent line */
         }
 
         .nav-links a {
@@ -66,7 +66,7 @@
         }
 
         .hero h1 {
-            font-size: 56px;
+            font-size: 52px;
             text-transform: uppercase;
             letter-spacing: -1px;
             line-height: 1.1;
@@ -82,13 +82,13 @@
             margin: 0 auto;
         }
 
-        /* Dynamic Grid Layout inspired by ELEV802 program blocks */
+        /* Program Layout Grid */
         .training-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 30px;
             max-width: 1200px;
-            margin: 40px auto 100px;
+            margin: 40px auto 60px;
             padding: 0 40px;
         }
 
@@ -123,7 +123,7 @@
             margin-bottom: 30px;
         }
 
-        /* High-Impact ELEV802 Styled Buttons */
+        /* Call To Action Buttons */
         .cta-btn {
             display: inline-block;
             background-color: #ffffff;
@@ -148,6 +148,34 @@
             width: 100%;
         }
 
+        /* Contact Block Styling */
+        .contact-section {
+            text-align: center;
+            padding: 60px 20px;
+            background-color: #0b0b0b;
+            border-top: 1px solid #1a1a1a;
+        }
+
+        .contact-section h3 {
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .contact-email {
+            color: #0070ba;
+            text-decoration: none;
+            font-size: 18px;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: bold;
+            transition: color 0.3s;
+        }
+
+        .contact-email:hover {
+            color: #ffffff;
+        }
+
         /* Footer Element */
         footer {
             border-top: 1px solid #1a1a1a;
@@ -165,7 +193,7 @@
 
     <!-- Header Navigation -->
     <nav>
-        <div class="logo">COACH <span>BEN</span></div>
+        <div class="logo">BEN STADEY <span>HOCKEY</span></div>
         <div class="nav-links">
             <a href="#" class="active">Private Training</a>
             <a href="/calendar.html">Live Schedule</a>
@@ -178,28 +206,25 @@
         <p>Tailored development paths to optimize individual skating posture, deceptive skills, and game-speed execution metrics.</p>
     </section>
 
-    <!-- Content Sections mimicking private packages & ice rental options -->
+    <!-- Content Blocks -->
     <section class="training-grid">
         
-        <!-- Block 1: Individual Skill Clinics -->
         <div class="card">
             <div>
-                <h2>On-Ice Skill Clinics</h2>
-                <p>High-intensity, multi-player development tracks capped strictly at 25 players. Focus zones target power skating mechanics, tactical positional reads, and explosive shooting releases.</p>
+                <h2>On-Ice Clinics</h2>
+                <p>High-intensity, multi-player development tracks capped strictly at 30 players. Focus zones target power skating mechanics, tactical positional reads, and explosive shooting releases.</p>
             </div>
             <a href="/calendar.html" class="cta-btn">Book Clinic Spot</a>
         </div>
 
-        <!-- Block 2: Small Group / 1-on-1 Request -->
         <div class="card">
             <div>
-                <h2>Small Group Sessions</h2>
+                <h2>Private 1:1 Sessions</h2>
                 <p>Custom 55-minute structural windows engineered directly to target specific performance deficiencies. High energy, rapid video feedback cycles, and maximum puck tracking loops.</p>
             </div>
             <a href="/calendar.html" class="cta-btn">View Open Slots</a>
         </div>
 
-        <!-- Block 3: Team / Facility Space Rental -->
         <div class="card">
             <div>
                 <h2>Team Custom Ice</h2>
@@ -210,8 +235,14 @@
 
     </section>
 
+    <!-- Lightweight Contact Layout -->
+    <section class="contact-section">
+        <h3>Questions regarding programming or private groups?</h3>
+        <a href="mailto:ben@benstadeyhockey.com?subject=Hockey Training Inquiry" class="contact-email">ben@benstadeyhockey.com</a>
+    </section>
+
     <footer>
-        &copy; 2026 Ben Stadey Hockey Training Systems. All Rights Reserved. Protected Payments via PayPal.
+        &copy; 2026 Ben Stadey Hockey Training. All Rights Reserved. Protected Payments via PayPal.
     </footer>
 
 </body>
