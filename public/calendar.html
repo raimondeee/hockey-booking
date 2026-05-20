@@ -47,6 +47,8 @@
         <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" style="color: #666; text-decoration: none; font-size: 14px; font-weight: bold; margin-left: 15px; font-family: sans-serif;">Contact Coach</a>
     </div>
     <div>
+        <!-- Added: This control button remains hidden until logged in as admin -->
+        <button id="manageCouponsBtn" class="btn btn-secondary" style="display: none; background: #343a40; margin-right: 10px; padding: 8px 14px;" onclick="openCouponModal()">🎟️ Manage Coupons</button>
         <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
     </div>
@@ -165,6 +167,40 @@
     <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
 </div>
 
+<!-- Coach Coupon Management Modal -->
+<div class="modal" id="couponManagerModal" style="width: 500px;">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3>🎟️ Promo & Coupon Vault</h3>
+    <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+
+    <!-- Creation Mini-Form -->
+    <h4 style="margin-bottom: 10px; font-size: 14px; text-transform: uppercase; color: #666;">Create New Code</h4>
+    <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 20px; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #eee;">
+        <div style="flex: 2;">
+            <label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">CODE NAME</label>
+            <input type="text" id="newCouponCode" placeholder="SAVE20" style="width:100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; text-transform: uppercase; box-sizing: border-box;">
+        </div>
+        <div style="flex: 2;">
+            <label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">TYPE</label>
+            <select id="newCouponType" style="width:100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; height: 31px; box-sizing: border-box;">
+                <option value="fixed">$ Fixed Cut</option>
+                <option value="percent">% Percent Cut</option>
+            </select>
+        </div>
+        <div style="flex: 1.5;">
+            <label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">VALUE</label>
+            <input type="number" id="newCouponValue" placeholder="10" style="width:100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <button class="btn btn-primary" style="padding: 7px 15px; font-size: 13px; height: 31px;" onclick="submitCreateCoupon()">Add</button>
+    </div>
+
+    <!-- Active List Grid Wrapper -->
+    <h4 style="margin-bottom: 10px; font-size: 14px; text-transform: uppercase; color: #666;">Active Vault Routines</h4>
+    <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+        <!-- Live row elements will inject here -->
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 <script src="https://www.paypal.com/sdk/js?client-id=test&currency=USD"></script>
 
@@ -205,8 +241,6 @@
                         const events = filteredData.map(session => {
                             const isFull = session.active_count >= 25;
                             const isLocked = session.access_code && session.access_code !== "";
-                            
-                            // Append padlock emoji if the slot matches access restrictions
                             const titlePrefix = isLocked ? "🔒 " : "";
 
                             return {
@@ -396,12 +430,14 @@
     }
 
     function submitWaitlist() { submitBooking(null); }
+    
     function openCreateSlotModal(dateStr) {
         document.getElementById('newStart').value = `${dateStr}T17:00`;
         document.getElementById('newEnd').value = `${dateStr}T18:30`;
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
     }
+    
     function submitCreateSlot() {
         const payload = {
             token: adminToken,
@@ -422,6 +458,7 @@
             calendar.refetchEvents(); 
         });
     }
+    
     function deleteCurrentSession() {
         if(!confirm("Are you sure you want to permanently cancel this session?")) return;
         fetch(`/api/admin/sessions/${selectedEvent.id}`, {
@@ -430,11 +467,97 @@
             body: JSON.stringify({ token: adminToken })
         }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
     }
+
+    // --- COACH VAULT CONTROLS ---
+    function openCouponModal() {
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('couponManagerModal').style.display = 'block';
+        loadCouponVaultList();
+    }
+
+    function loadCouponVaultList() {
+        const wrapper = document.getElementById('couponListWrapper');
+        wrapper.innerHTML = `<p style="padding:15px; color:#999; font-size:13px; text-align:center;">Reading coupon vault keys...</p>`;
+
+        fetch('/api/admin/coupons/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(coupons => {
+            if(coupons.length === 0) {
+                wrapper.innerHTML = `<p style="padding:15px; color:#999; font-size:13px; text-align:center;">No active promotional codes found.</p>`;
+                return;
+            }
+
+            let html = `<table style="width:100%; border-collapse: collapse; font-size:13px; text-align:left;">
+                <tr style="background:#f1f1f1; border-bottom:1px solid #eee; font-weight:bold;">
+                    <th style="padding:8px;">Code</th>
+                    <th style="padding:8px;">Type</th>
+                    <th style="padding:8px;">Value</th>
+                    <th style="padding:8px; text-align:center;">Action</th>
+                </tr>`;
+
+            coupons.forEach(coupon => {
+                const sym = coupon.discount_type === 'fixed' ? '$' : '%';
+                html += `<tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding:8px; font-weight:bold; color:#0070ba;">${coupon.code}</td>
+                    <td style="padding:8px; text-transform:capitalize;">${coupon.discount_type}</td>
+                    <td style="padding:8px;">${coupon.discount_value}${sym}</td>
+                    <td style="padding:8px; text-align:center;">
+                        <button class="btn btn-danger" style="padding:3px 8px; font-size:11px; margin:0; width:auto;" onclick="deleteCouponFromVault(${coupon.id})">Revoke</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += `</table>`;
+            wrapper.innerHTML = html;
+        });
+    }
+
+    function submitCreateCoupon() {
+        const code = document.getElementById('newCouponCode').value;
+        const type = document.getElementById('newCouponType').value;
+        const val = document.getElementById('newCouponValue').value;
+
+        if(!code || !val) { alert("Please complete all parameters to append a coupon."); return; }
+
+        fetch('/api/admin/coupons/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, code: code, discount_type: type, discount_value: val })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                document.getElementById('newCouponCode').value = "";
+                document.getElementById('newCouponValue').value = "";
+                loadCouponVaultList(); 
+            } else {
+                alert(data.error || "Failed to append code.");
+            }
+        });
+    }
+
+    function deleteCouponFromVault(id) {
+        if(!confirm("Are you sure you want to permanently delete this discount code?")) return;
+
+        fetch(`/api/admin/coupons/${id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        }).then(res => res.json()).then(() => {
+            loadCouponVaultList();
+        });
+    }
+
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
+            document.getElementById('manageCouponsBtn').style.display = 'none'; 
             document.getElementById('filterBar').style.display = 'flex';
             alert("Logged out.");
             calendar.refetchEvents(); 
@@ -443,6 +566,7 @@
             document.getElementById('loginModal').style.display = 'block';
         }
     }
+    
     function submitLogin() {
         fetch('/api/admin/login', {
             method: 'POST',
@@ -455,17 +579,20 @@
                 adminToken = data.token;
                 document.getElementById('adminBadge').style.display = 'inline-block';
                 document.getElementById('authBtn').innerText = "Logout";
+                document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
                 document.getElementById('filterBar').style.display = 'none';
                 closeAllModals();
                 calendar.refetchEvents(); 
             } else { alert("Authorization failed."); }
         });
     }
+    
     function closeAllModals() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';
         document.getElementById('bookingModal').style.display = 'none';
         document.getElementById('createSlotModal').style.display = 'none';
+        document.getElementById('couponManagerModal').style.display = 'none';
     }
 </script>
 </body>

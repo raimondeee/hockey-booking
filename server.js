@@ -24,7 +24,7 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
-// 1. Get all scheduled sessions alongside dynamic active and waitlist numbers
+// 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers
 app.get('/api/sessions', (req, res) => {
     const query = `
         SELECT s.*, 
@@ -33,7 +33,6 @@ app.get('/api/sessions', (req, res) => {
         FROM sessions s
         LEFT JOIN bookings b ON s.id = b.session_id
         GROUP BY s.id`;
-// ... Server.js passes this straight along. Since we used SELECT s.*, the new type column transfers cleanly!
     
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -41,7 +40,20 @@ app.get('/api/sessions', (req, res) => {
     });
 });
 
-// 2. Submit a registration (Enforces server-side PayPal authentication checks and saves legal waiver logs)
+// 2. Public: Validate a coupon code and return its mathematical value to the calendar interface
+app.post('/api/validate-coupon', (req, res) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: "No code provided" });
+
+    db.get(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [code.toUpperCase().trim()], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(400).json({ error: "Invalid or expired coupon code." });
+        
+        res.json({ success: true, discount_type: row.discount_type, discount_value: row.discount_value });
+    });
+});
+
+// 3. Public: Submit a registration (Enforces server-side PayPal authentication checks and saves legal waiver logs)
 app.post('/api/book', async (req, res) => {
     const { session_id, player_name, parent_email, parent_name, paypal_order_id } = req.body;
 
@@ -72,7 +84,7 @@ app.post('/api/book', async (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
 
         let status = 'active';
-        if (counts.active >= 25) { // Updated cap
+        if (counts.active >= 25) {
             if (counts.waitlist >= 15) {
                 return res.status(400).json({ error: "This training session and waitlist are completely full." });
             }
@@ -105,7 +117,7 @@ app.post('/api/book', async (req, res) => {
     });
 });
 
-// 3. Admin Authentication endpoint
+// 4. Admin Portal: System Authentication endpoint
 app.post('/api/admin/login', (req, res) => {
     const { username, password } = req.body;
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
@@ -114,19 +126,19 @@ app.post('/api/admin/login', (req, res) => {
     res.status(401).json({ error: "Invalid coach credentials." });
 });
 
-// 4. Admin Action: Create an empty calendar slot
+// 5. Admin Portal: Create an empty calendar slot (with classification & access controls)
 app.post('/api/admin/sessions', (req, res) => {
-    const { token, title, start_time, end_time, price, event_type } = req.body; // Added parameter mapping
+    const { token, title, start_time, end_time, price, event_type, access_code } = req.body; 
     if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
 
-    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type) VALUES (?, ?, ?, ?, ?)`;
-    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large'], function(err) {
+    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code) VALUES (?, ?, ?, ?, ?, ?)`;
+    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id: this.lastID });
     });
 });
 
-// 5. Admin Action: Delete a session and clean up connected roster files
+// 6. Admin Portal: Delete a session and clean up connected roster files
 app.delete('/api/admin/sessions/:id', (req, res) => {
     const { token } = req.body;
     const sessionId = req.params.id;
@@ -139,6 +151,49 @@ app.delete('/api/admin/sessions/:id', (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true });
         });
+    });
+});
+
+// 7. Admin Portal: Fetch all coupons inside the generator vault
+app.post('/api/admin/coupons/list', (req, res) => {
+    const { token } = req.body;
+    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
+
+    db.all(`SELECT * FROM coupons ORDER BY id DESC`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// 8. Admin Portal: Generate a brand new functional coupon code record
+app.post('/api/admin/coupons/create', (req, res) => {
+    const { token, code, discount_type, discount_value } = req.body;
+    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
+    if (!code || !discount_value) return res.status(400).json({ error: "Missing required values" });
+
+    const cleanCode = code.toUpperCase().trim();
+    const insertQuery = `INSERT INTO coupons (code, discount_type, discount_value, active) VALUES (?, ?, ?, 1)`;
+
+    db.run(insertQuery, [cleanCode, discount_type, parseFloat(discount_value)], function(err) {
+        if (err) {
+            if (err.message.includes("UNIQUE")) {
+                return res.status(400).json({ error: "A coupon with this exact code name already exists." });
+            }
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, id: this.lastID });
+    });
+});
+
+// 9. Admin Portal: Terminate/Revoke an active coupon code by index key
+app.delete('/api/admin/coupons/:id', (req, res) => {
+    const { token } = req.body;
+    const couponId = req.params.id;
+    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
+
+    db.run(`DELETE FROM coupons WHERE id = ?`, [couponId], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
     });
 });
 
