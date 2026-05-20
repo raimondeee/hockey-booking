@@ -149,26 +149,32 @@
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
             events: function(info, successCallback, failureCallback) {
-                // Snag the filter criteria straight out of the browser bar
                 const urlParams = new URLSearchParams(window.location.search);
                 const filterType = urlParams.get('type'); 
 
                 fetch('/api/sessions')
                     .then(res => res.json())
                     .then(data => {
-                        // Isolate types dynamically before rendering maps
+                        // FIX: If adminToken is true, bypass filterType entirely to show all events
                         let filteredData = data;
-                        if (filterType) {
+                        if (filterType && !adminToken) {
                             filteredData = data.filter(session => session.event_type === filterType);
                         }
 
-                        const events = filteredData.map(session => ({
-                            id: session.id,
-                            title: `${session.title} (${session.active_count}/25)`,
-                            start: session.start_time,
-                            end: session.end_time,
-                            extendedProps: { activeCount: session.active_count, waitlistCount: session.waitlist_count, price: session.price }
-                        }));
+                        const events = filteredData.map(session => {
+                            const isFull = session.active_count >= 25;
+                            
+                            return {
+                                id: session.id,
+                                title: `${session.title} (${session.active_count}/25)`,
+                                start: session.start_time,
+                                end: session.end_time,
+                                // DYNAMIC COLORING: Gray out session banners when they are capped
+                                backgroundColor: isFull ? '#555555' : '#0070ba',
+                                borderColor: isFull ? '#444444' : '#005fa3',
+                                extendedProps: { activeCount: session.active_count, waitlistCount: session.waitlist_count, price: session.price }
+                            };
+                        });
                         successCallback(events);
                     });
             },
@@ -301,6 +307,7 @@
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
             alert("Logged out.");
+            calendar.refetchEvents(); // Re-trigger filter when logging out
         } else {
             document.getElementById('overlay').style.display = 'block';
             document.getElementById('loginModal').style.display = 'block';
@@ -319,6 +326,7 @@
                 document.getElementById('adminBadge').style.display = 'inline-block';
                 document.getElementById('authBtn').innerText = "Logout";
                 closeAllModals();
+                calendar.refetchEvents(); // Force calendar to fetch again and uncover hidden entries
             } else { alert("Authorization failed."); }
         });
     }
