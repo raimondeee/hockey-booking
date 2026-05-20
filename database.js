@@ -23,14 +23,14 @@ console.log(`[Database] Connecting to database at: ${dbPath}`);
 
 const db = new sqlite3.Database(dbPath);
 
-db.serialize(() => {
-    // Create Table for training sessions/events
+    // Create Table for training sessions/events with classification routing
     db.run(`CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT,
         start_time TEXT,
         end_time TEXT,
-        price REAL DEFAULT 0.00
+        price REAL DEFAULT 0.00,
+        event_type TEXT DEFAULT 'all' -- Added: 'large', 'small', or 'all'
     )`);
 
     // Create Table for registered players with comprehensive legal waiver logging

@@ -33,6 +33,7 @@ app.get('/api/sessions', (req, res) => {
         FROM sessions s
         LEFT JOIN bookings b ON s.id = b.session_id
         GROUP BY s.id`;
+// ... Server.js passes this straight along. Since we used SELECT s.*, the new type column transfers cleanly!
     
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -62,7 +63,7 @@ app.post('/api/book', async (req, res) => {
         }
     }
 
-    // Capacity Verification Loop: Check current limits (30 active, 15 waitlist)
+    // Capacity Verification Loop: Check current limits (25 active, 15 waitlist)
     const countQuery = `SELECT 
         (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
         (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
@@ -71,7 +72,7 @@ app.post('/api/book', async (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
 
         let status = 'active';
-        if (counts.active >= 25) {
+        if (counts.active >= 25) { // Updated cap
             if (counts.waitlist >= 15) {
                 return res.status(400).json({ error: "This training session and waitlist are completely full." });
             }
@@ -115,11 +116,11 @@ app.post('/api/admin/login', (req, res) => {
 
 // 4. Admin Action: Create an empty calendar slot
 app.post('/api/admin/sessions', (req, res) => {
-    const { token, title, start_time, end_time, price } = req.body;
+    const { token, title, start_time, end_time, price, event_type } = req.body; // Added parameter mapping
     if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
 
-    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price) VALUES (?, ?, ?, ?)`;
-    db.run(insertQuery, [title, start_time, end_time, price], function(err) {
+    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type) VALUES (?, ?, ?, ?, ?)`;
+    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large'], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id: this.lastID });
     });

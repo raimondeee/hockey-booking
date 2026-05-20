@@ -13,7 +13,7 @@
         .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: 999; }
         .input-group { margin-bottom: 12px; }
         .input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
-        .input-group input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .input-group input, .input-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
         
         .waiver-box { background: #f1f1f1; border: 1px solid #ddd; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #555; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
         .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 15px; font-size: 13px; font-weight: bold; }
@@ -112,7 +112,17 @@
 <div class="modal" id="createSlotModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Create New Training Time Slot</h3>
-    <div class="input-group"><label>Event Title</label><input type="text" id="newTitle" value="Elite Defense Clinic"></div>
+    <div class="input-group">
+        <label>Event Title</label>
+        <input type="text" id="newTitle" placeholder="e.g., PeeWee Power Skating, High School Skill Clinic">
+    </div>
+    <div class="input-group">
+        <label>Event Group Classification</label>
+        <select id="newEventType">
+            <option value="large">Large Group Skill Clinic</option>
+            <option value="small">Small Group Session</option>
+        </select>
+    </div>
     <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
     <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
     <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="45.00"></div>
@@ -139,10 +149,20 @@
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
             events: function(info, successCallback, failureCallback) {
+                // Snag the filter criteria straight out of the browser bar
+                const urlParams = new URLSearchParams(window.location.search);
+                const filterType = urlParams.get('type'); 
+
                 fetch('/api/sessions')
                     .then(res => res.json())
                     .then(data => {
-                        const events = data.map(session => ({
+                        // Isolate types dynamically before rendering maps
+                        let filteredData = data;
+                        if (filterType) {
+                            filteredData = data.filter(session => session.event_type === filterType);
+                        }
+
+                        const events = filteredData.map(session => ({
                             id: session.id,
                             title: `${session.title} (${session.active_count}/25)`,
                             start: session.start_time,
@@ -198,7 +218,7 @@
             document.getElementById('parentFormFields').style.display = 'block';
             document.getElementById('deleteSessionBtn').style.display = 'none';
             
-            if (props.activeCount >= 30) {
+            if (props.activeCount >= 25) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
             } else {
@@ -255,7 +275,8 @@
     function submitCreateSlot() {
         const payload = {
             token: adminToken,
-            title: document.getElementById('newTitle').value,
+            title: document.getElementById('newTitle').value || "Skills Session",
+            event_type: document.getElementById('newEventType').value,
             start_time: document.getElementById('newStart').value,
             end_time: document.getElementById('newEnd').value,
             price: parseFloat(document.getElementById('newPrice').value)
