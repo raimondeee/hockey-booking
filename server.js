@@ -71,7 +71,7 @@ app.post('/api/book', async (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
 
         let status = 'active';
-        if (counts.active >= 30) {
+        if (counts.active >= 25) {
             if (counts.waitlist >= 15) {
                 return res.status(400).json({ error: "This training session and waitlist are completely full." });
             }

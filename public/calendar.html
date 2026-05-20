@@ -144,7 +144,7 @@
                     .then(data => {
                         const events = data.map(session => ({
                             id: session.id,
-                            title: `${session.title} (${session.active_count}/30)`,
+                            title: `${session.title} (${session.active_count}/25)`,
                             start: session.start_time,
                             end: session.end_time,
                             extendedProps: { activeCount: session.active_count, waitlistCount: session.waitlist_count, price: session.price }
@@ -181,7 +181,7 @@
         selectedEvent = event;
         const props = event.extendedProps;
         document.getElementById('modalTitle').innerText = event.title;
-        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/30 | Waitlist: ${props.waitlistCount}/15`;
+        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/25 | Waitlist: ${props.waitlistCount}/15`;
 
         document.getElementById('parentName').value = "";
         document.getElementById('parentEmail').value = "";
