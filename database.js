@@ -23,14 +23,15 @@ console.log(`[Database] Connecting to database at: ${dbPath}`);
 
 const db = new sqlite3.Database(dbPath);
 
-// Create Table for training sessions/events with classification routing
+// Create Table for training sessions/events with Access Code integration
 db.run(`CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,
     start_time TEXT,
     end_time TEXT,
     price REAL DEFAULT 0.00,
-    event_type TEXT DEFAULT 'all'
+    event_type TEXT DEFAULT 'all',
+    access_code TEXT DEFAULT NULL
 )`);
 
 // Create Table for registered players with comprehensive legal waiver logging
@@ -47,5 +48,18 @@ db.run(`CREATE TABLE IF NOT EXISTS bookings (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(session_id) REFERENCES sessions(id)
 )`);
+
+// Create Table to store discount codes managed by the coach
+db.run(`CREATE TABLE IF NOT EXISTS coupons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,              -- The code parents type (e.g., 'SAVE10')
+    discount_type TEXT,            -- 'fixed' ($ off) or 'percent' (% off)
+    discount_value REAL,           -- e.g., 10.00 or 15.00
+    active INTEGER DEFAULT 1       -- 1 for valid, 0 for expired
+)`, () => {
+    // Seed a couple of default test coupons into the new table row matrix automatically
+    db.run(`INSERT OR IGNORE INTO coupons (code, discount_type, discount_value, active) VALUES ('SAVE10', 'fixed', 10.00, 1)`);
+    db.run(`INSERT OR IGNORE INTO coupons (code, discount_type, discount_value, active) VALUES ('SIBLING15', 'percent', 15.00, 1)`);
+});
 
 module.exports = db;

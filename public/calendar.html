@@ -7,7 +7,15 @@
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; }
-        .header-bar { display: flex; justify-content: space-between; align-items: center; max-width: 940px; margin: 0 auto 20px; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; max-width: 940px; margin: 0 auto 10px; }
+        
+        /* Filter Button Bar Controls */
+        .filter-controls { max-width: 900px; margin: 0 auto 20px; background: white; padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 10px; }
+        .filter-label { font-size: 13px; font-weight: bold; text-transform: uppercase; color: #666; letter-spacing: 0.5px; }
+        .filter-btn { padding: 6px 14px; border: 1px solid #ddd; background: #fff; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; color: #555; transition: all 0.2s ease; }
+        .filter-btn:hover { background: #f1f1f1; }
+        .filter-btn.active { background: #0070ba; color: white; border-color: #0070ba; }
+
         #calendar { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
         .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.2); z-index: 1000; width: 420px; max-height: 90vh; overflow-y: auto; }
         .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: 999; }
@@ -44,6 +52,14 @@
     </div>
 </div>
 
+<!-- Inline Parent Filter Layout Row -->
+<div class="filter-controls" id="filterBar">
+    <span class="filter-label">Filter Schedule:</span>
+    <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')">Show All</button>
+    <button class="filter-btn" id="filterBtn-large" onclick="applyLiveFilter('large')">Large Group Clinics</button>
+    <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
+</div>
+
 <div id="calendar"></div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
@@ -64,10 +80,26 @@
     <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
     
     <div id="parentFormFields">
+        <!-- Access Code Lock Check -->
+        <div class="input-group" id="accessCodeWrapper" style="display:none;">
+            <label style="color: #dc3545; font-weight: bold;">🔒 This is a Private Session. Enter Access Code *</label>
+            <input type="text" id="parentAccessCode" oninput="validateForm()" placeholder="Obtain passcode directly from Coach Ben">
+        </div>
+
         <div class="input-group"><label>Parent/Guardian Full Name *</label><input type="text" id="parentName" oninput="validateForm()"></div>
         <div class="input-group"><label>Parent Email *</label><input type="email" id="parentEmail" oninput="validateForm()"></div>
         <div class="input-group"><label>Student / Player Name *</label><input type="text" id="playerName" oninput="validateForm()"></div>
         
+        <!-- Coupon Code Tracker Row -->
+        <div class="input-group">
+            <label>Promo / Coupon Code</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="couponCodeInput" placeholder="e.g., SAVE10" style="text-transform: uppercase;">
+                <button type="button" class="btn btn-secondary" onclick="applyCouponDiscount()" style="padding: 4px 12px; margin:0; font-size:12px;">Apply</button>
+            </div>
+            <span id="couponFeedback" style="font-size:12px; font-weight:bold; display:block; margin-top:4px;"></span>
+        </div>
+
         <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
         <div class="waiver-box">
             <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
@@ -98,7 +130,7 @@
         </div>
 
         <div id="paypal-button-wrapper">
-            <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all required fields and accept the waiver terms to unlock payment.')"></div>
+            <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all required fields, input the correct passcode if locked, and accept the waiver terms to unlock payment.')"></div>
             <div id="paypal-button-container"></div>
         </div>
         
@@ -123,6 +155,10 @@
             <option value="small">Small Group Session</option>
         </select>
     </div>
+    <div class="input-group">
+        <label>Access Code Restriction (Optional)</label>
+        <input type="text" id="newAccessCode" placeholder="Leave blank for public open registration">
+    </div>
     <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
     <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
     <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="45.00"></div>
@@ -137,8 +173,14 @@
     let selectedEvent = null;
     let adminToken = null;
     let paypalActionsInstance = null;
+    let currentSessionPrice = 0; 
+    let verifiedDiscountAmount = 0;
 
     document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialType = urlParams.get('type') || 'all';
+        updateFilterButtonUI(initialType);
+
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
@@ -149,30 +191,37 @@
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
             events: function(info, successCallback, failureCallback) {
-                const urlParams = new URLSearchParams(window.location.search);
-                const filterType = urlParams.get('type'); 
+                const currentUrlParams = new URLSearchParams(window.location.search);
+                const filterType = currentUrlParams.get('type'); 
 
                 fetch('/api/sessions')
                     .then(res => res.json())
                     .then(data => {
-                        // FIX: If adminToken is true, bypass filterType entirely to show all events
                         let filteredData = data;
-                        if (filterType && !adminToken) {
+                        if (filterType && filterType !== 'all' && !adminToken) {
                             filteredData = data.filter(session => session.event_type === filterType);
                         }
 
                         const events = filteredData.map(session => {
                             const isFull = session.active_count >= 25;
+                            const isLocked = session.access_code && session.access_code !== "";
                             
+                            // Append padlock emoji if the slot matches access restrictions
+                            const titlePrefix = isLocked ? "🔒 " : "";
+
                             return {
                                 id: session.id,
-                                title: `${session.title} (${session.active_count}/25)`,
+                                title: `${titlePrefix}${session.title} (${session.active_count}/25)`,
                                 start: session.start_time,
                                 end: session.end_time,
-                                // DYNAMIC COLORING: Gray out session banners when they are capped
                                 backgroundColor: isFull ? '#555555' : '#0070ba',
                                 borderColor: isFull ? '#444444' : '#005fa3',
-                                extendedProps: { activeCount: session.active_count, waitlistCount: session.waitlist_count, price: session.price }
+                                extendedProps: { 
+                                    activeCount: session.active_count, 
+                                    waitlistCount: session.waitlist_count, 
+                                    price: session.price,
+                                    access_code: session.access_code
+                                }
                             };
                         });
                         successCallback(events);
@@ -184,13 +233,77 @@
         calendar.render();
     });
 
+    function applyLiveFilter(type) {
+        const url = new URL(window.location);
+        if (type === 'all') {
+            url.searchParams.delete('type');
+        } else {
+            url.searchParams.set('type', type);
+        }
+        window.history.pushState({}, '', url);
+        updateFilterButtonUI(type);
+        if (calendar) calendar.refetchEvents();
+    }
+
+    function updateFilterButtonUI(activeType) {
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = document.getElementById(`filterBtn-${activeType}`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    function applyCouponDiscount() {
+        const code = document.getElementById('couponCodeInput').value.trim();
+        const feedback = document.getElementById('couponFeedback');
+        
+        if(!code) return;
+
+        fetch('/api/validate-coupon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                let originalPrice = selectedEvent.extendedProps.price;
+                
+                if(data.discount_type === 'fixed') {
+                    verifiedDiscountAmount = data.discount_value;
+                } else if (data.discount_type === 'percent') {
+                    verifiedDiscountAmount = originalPrice * (data.discount_value / 100);
+                }
+                
+                currentSessionPrice = Math.max(0, originalPrice - verifiedDiscountAmount);
+                
+                feedback.style.color = 'green';
+                feedback.innerText = `Coupon applied! Saved $${verifiedDiscountAmount.toFixed(2)}. New total: $${currentSessionPrice.toFixed(2)}`;
+                validateForm(); 
+            } else {
+                feedback.style.color = 'red';
+                feedback.innerText = data.error || "Invalid coupon code.";
+                verifiedDiscountAmount = 0;
+                currentSessionPrice = selectedEvent.extendedProps.price;
+                validateForm();
+            }
+        }).catch(() => {
+            feedback.style.color = 'red';
+            feedback.innerText = "Error verifying coupon validation codes.";
+        });
+    }
+
     function validateForm() {
         const parentName = document.getElementById('parentName').value.trim();
         const parentEmail = document.getElementById('parentEmail').value.trim();
         const playerName = document.getElementById('playerName').value.trim();
         const waiverChecked = document.getElementById('waiverCheckbox').checked;
 
-        const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked;
+        let accessPasses = true;
+        if (selectedEvent && selectedEvent.extendedProps.access_code) {
+            const inputCode = document.getElementById('parentAccessCode').value.trim();
+            accessPasses = (inputCode === selectedEvent.extendedProps.access_code);
+        }
+
+        const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
 
         document.getElementById('waitlistBtn').disabled = !isFormValid;
 
@@ -213,6 +326,10 @@
         document.getElementById('parentEmail').value = "";
         document.getElementById('playerName').value = "";
         document.getElementById('waiverCheckbox').checked = false;
+        document.getElementById('couponCodeInput').value = "";
+        document.getElementById('couponFeedback').innerText = "";
+        verifiedDiscountAmount = 0;
+        currentSessionPrice = props.price;
 
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('bookingModal').style.display = 'block';
@@ -224,6 +341,13 @@
             document.getElementById('parentFormFields').style.display = 'block';
             document.getElementById('deleteSessionBtn').style.display = 'none';
             
+            if (props.access_code && props.access_code !== "") {
+                document.getElementById('accessCodeWrapper').style.display = 'block';
+                document.getElementById('parentAccessCode').value = "";
+            } else {
+                document.getElementById('accessCodeWrapper').style.display = 'none';
+            }
+
             if (props.activeCount >= 25) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
@@ -243,7 +367,7 @@
         onClick: function() { validateForm(); },
         createOrder: function(data, actions) {
             return actions.order.create({
-                purchase_units: [{ amount: { value: selectedEvent.extendedProps.price.toString() } }]
+                purchase_units: [{ amount: { value: currentSessionPrice.toString() } }]
             });
         },
         onApprove: function(data, actions) {
@@ -283,6 +407,7 @@
             token: adminToken,
             title: document.getElementById('newTitle').value || "Skills Session",
             event_type: document.getElementById('newEventType').value,
+            access_code: document.getElementById('newAccessCode').value,
             start_time: document.getElementById('newStart').value,
             end_time: document.getElementById('newEnd').value,
             price: parseFloat(document.getElementById('newPrice').value)
@@ -291,7 +416,11 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+        }).then(res => res.json()).then(() => { 
+            closeAllModals(); 
+            document.getElementById('newAccessCode').value = "";
+            calendar.refetchEvents(); 
+        });
     }
     function deleteCurrentSession() {
         if(!confirm("Are you sure you want to permanently cancel this session?")) return;
@@ -306,8 +435,9 @@
             adminToken = null;
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
+            document.getElementById('filterBar').style.display = 'flex';
             alert("Logged out.");
-            calendar.refetchEvents(); // Re-trigger filter when logging out
+            calendar.refetchEvents(); 
         } else {
             document.getElementById('overlay').style.display = 'block';
             document.getElementById('loginModal').style.display = 'block';
@@ -325,8 +455,9 @@
                 adminToken = data.token;
                 document.getElementById('adminBadge').style.display = 'inline-block';
                 document.getElementById('authBtn').innerText = "Logout";
+                document.getElementById('filterBar').style.display = 'none';
                 closeAllModals();
-                calendar.refetchEvents(); // Force calendar to fetch again and uncover hidden entries
+                calendar.refetchEvents(); 
             } else { alert("Authorization failed."); }
         });
     }
