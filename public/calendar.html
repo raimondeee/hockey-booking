@@ -6,7 +6,7 @@
     <title>Ben Stadey Hockey Training | Live Schedule</title>
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; padding-bottom: 60px; /* Adds space for sticky mobile bottom contact button */ }
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; padding-bottom: 60px; }
         
         .header-bar { 
             display: flex; 
@@ -91,19 +91,20 @@
         #paypal-button-wrapper { position: relative; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
 
-        #contactCoachLink {
-            color: #666; 
-            text-decoration: none; 
+        /* Unified responsive wrapper rules for sticky responsive shortcuts */
+        #contactCoachLink, #manageCouponsBtn {
             font-size: 14px; 
             font-weight: bold; 
-            margin-left: 15px; 
             font-family: sans-serif;
             white-space: nowrap;
+            text-decoration: none;
         }
+        
+        #contactCoachLink { color: #666; margin-left: 15px; }
 
         /* --- MOBILE LAYOUT OVERRIDES (< 600px Viewports) --- */
         @media (max-width: 600px) {
-            body { padding-bottom: 80px; /* Extra room for mobile sticky footer link */ }
+            body { padding-bottom: 80px; }
             
             .header-bar {
                 flex-direction: column;
@@ -112,37 +113,41 @@
                 margin-bottom: 20px;
             }
 
-            /* Back to Home takes up its own complete line */
             .header-left {
                 width: 100%;
                 display: block;
                 text-align: left;
             }
-            .header-left .btn-secondary {
-                display: inline-block;
-                width: auto;
-                box-sizing: border-box;
-            }
-
+            
             /* Admin tokens & Coach Portal push over into upper right */
             .header-right {
                 width: 100%;
                 justify-content: flex-end;
-                margin-top: -46px; /* Pulls portal row upward to sit perfectly parallel on the right side of Back Home */
+                margin-top: -46px; 
             }
 
-            /* Sticky Mobile Layout Anchor: Contact link snaps down to Lower Left Margin */
-            #contactCoachLink {
+            /* Treat desktop display variants as standard layout items but drop desktop layouts */
+            #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
+
+            /* Sticky Lower-Left Floating Anchors for both user states */
+            #contactCoachLink, #manageCouponsBtn {
                 position: fixed;
                 bottom: 16px;
                 left: 16px;
                 margin-left: 0;
-                background: rgba(248, 249, 250, 0.95); /* Semi-transparent backing so calendar lines don't bleed through */
+                background: rgba(248, 249, 250, 0.95); 
                 padding: 10px 16px;
                 border-radius: 20px;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.15);
                 border: 1px solid #ddd;
-                z-index: 998; /* Under modal overlay, but above calendar grid panels */
+                z-index: 998; 
+            }
+            
+            /* Styled color accents to maintain theme balance across states */
+            #manageCouponsBtn {
+                background: #343a40 !important;
+                color: #fff !important;
+                border-color: #212529 !important;
             }
 
             .filter-controls {
@@ -160,13 +165,14 @@
         <a href="/index.html" class="btn-secondary">← Back to Home</a>
     </div>
     <div class="header-right">
+        <!-- Desktop fallback remains native layout, responsive layouts catch sticky anchors -->
         <button id="manageCouponsBtn" class="btn btn-secondary" style="display: none; background: #343a40; margin-right: 10px; padding: 8px 14px;" onclick="openCouponModal()">🎟️ Manage Coupons</button>
         <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
     </div>
 </div>
 
-<!-- Contact Coach is split into a standalone root node so mobile coordinate positioning rules catch it cleanly -->
+<!-- Public parent contextual anchor link -->
 <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
 
 <!-- Inline Parent Filter Layout Row -->
@@ -673,6 +679,7 @@
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
+            document.getElementById('contactCoachLink').style.display = 'inline-block'; // Restore parent link
             document.getElementById('filterBar').style.display = 'flex';
             alert("Logged out.");
             calendar.refetchEvents(); 
@@ -695,6 +702,7 @@
                 document.getElementById('adminBadge').style.display = 'inline-block';
                 document.getElementById('authBtn').innerText = "Logout";
                 document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
+                document.getElementById('contactCoachLink').style.display = 'none'; // SWAP ACTIVE STATE: Hide context link
                 document.getElementById('filterBar').style.display = 'none';
                 closeAllModals();
                 calendar.refetchEvents(); 
