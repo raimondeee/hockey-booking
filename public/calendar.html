@@ -44,11 +44,21 @@
         #calendar { 
             width: 95%; 
             max-width: 960px; 
-            margin: 0 auto 40px; 
+            margin: 0 auto 20px; /* Dropped margin-bottom from 40px to 20px to hold the new contact row close */
             background: white; 
             padding: 20px; 
             border-radius: 8px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
+            box-sizing: border-box;
+        }
+
+        /* Desktop Positioning Context for the lower metadata row */
+        .calendar-footer-row {
+            width: 95%;
+            max-width: 960px;
+            margin: 0 auto 40px;
+            display: flex;
+            justify-content: flex-start;
             box-sizing: border-box;
         }
 
@@ -83,10 +93,7 @@
         .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn-primary { background: #0070ba; color: white; }
         .btn-primary:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
-        
-        /* REVERTED: Restored your clean original button spacing constraints */
         .btn-secondary { background: #6c757d; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-right: 10px; }
-        
         .btn-danger { background: #dc3545; color: white; margin-top: 10px; width: 100%; }
         .close-btn { float: right; cursor: pointer; font-size: 20px; }
         
@@ -113,11 +120,12 @@
             text-decoration: none;
         }
         
-        #contactCoachLink { color: #666; margin-left: 15px; }
+        /* Desktop base placement styles */
+        #contactCoachLink { color: #666; padding: 5px 0; }
 
         /* --- MOBILE LAYOUT OVERRIDES (< 600px Viewports) --- */
         @media (max-width: 600px) {
-            body { padding-bottom: 120px; /* Expanded room to stack both admin elements comfortably */ }
+            body { padding-bottom: 120px; }
             
             .header-bar {
                 flex-direction: column;
@@ -140,7 +148,7 @@
 
             #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
 
-            /* Sticky Lower-Left Floating Anchors for user/coach interface blocks */
+            /* Sticky Mobile Floating Anchors for responsive panels */
             #contactCoachLink, #manageCouponsBtn {
                 position: fixed;
                 bottom: 16px;
@@ -160,10 +168,9 @@
                 border-color: #212529 !important;
             }
 
-            /* Reposition Admin Badge to float cleanly right over the lower-left coupons shortcut link */
             .admin-badge {
                 position: fixed;
-                bottom: 64px; /* Perfectly gaps it directly on its own line above coupons link */
+                bottom: 64px; 
                 left: 16px;
                 margin-right: 0;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -191,9 +198,6 @@
     </div>
 </div>
 
-<!-- Public parent contextual anchor link -->
-<a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
-
 <!-- Inline Parent Filter Layout Row -->
 <div class="filter-controls" id="filterBar">
     <span class="filter-label">Filter Schedule:</span>
@@ -202,7 +206,13 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
+<!-- The Calendar Element Grid Container -->
 <div id="calendar"></div>
+
+<!-- New: Centered Desktop structural row framing lower metadata anchors right beneath the calendar container bounds -->
+<div class="calendar-footer-row">
+    <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
+</div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
 
@@ -393,7 +403,7 @@
                                 extendedProps: { 
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
-                                    price: session.price,
+                                price: session.price,
                                     access_code: session.access_code
                                 }
                             };
@@ -695,7 +705,7 @@
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
-            document.body.style.backgroundColor = '#f8f9fa'; // Restore default background
+            document.body.style.backgroundColor = '#f8f9fa'; 
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
@@ -719,7 +729,7 @@
         .then(data => {
             if(data.success) {
                 adminToken = data.token;
-                document.body.style.backgroundColor = '#fef9e7'; // Set background to pale canary yellow
+                document.body.style.backgroundColor = '#fef9e7'; 
                 document.getElementById('adminBadge').style.display = 'inline-block';
                 document.getElementById('authBtn').innerText = "Logout";
                 document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
