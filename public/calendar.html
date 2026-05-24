@@ -44,7 +44,7 @@
         #calendar { 
             width: 95%; 
             max-width: 960px; 
-            margin: 0 auto 20px; /* Dropped margin-bottom from 40px to 20px to hold the new contact row close */
+            margin: 0 auto 20px; 
             background: white; 
             padding: 20px; 
             border-radius: 8px; 
@@ -120,7 +120,6 @@
             text-decoration: none;
         }
         
-        /* Desktop base placement styles */
         #contactCoachLink { color: #666; padding: 5px 0; }
 
         /* --- MOBILE LAYOUT OVERRIDES (< 600px Viewports) --- */
@@ -148,7 +147,6 @@
 
             #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
 
-            /* Sticky Mobile Floating Anchors for responsive panels */
             #contactCoachLink, #manageCouponsBtn {
                 position: fixed;
                 bottom: 16px;
@@ -198,7 +196,6 @@
     </div>
 </div>
 
-<!-- Inline Parent Filter Layout Row -->
 <div class="filter-controls" id="filterBar">
     <span class="filter-label">Filter Schedule:</span>
     <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')">Show All</button>
@@ -206,17 +203,14 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
-<!-- The Calendar Element Grid Container -->
 <div id="calendar"></div>
 
-<!-- New: Centered Desktop structural row framing lower metadata anchors right beneath the calendar container bounds -->
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
 </div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
 
-<!-- Login Modal -->
 <div class="modal" id="loginModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Coach Authentication</h3>
@@ -225,14 +219,12 @@
     <button class="btn btn-primary" style="width: 100%;" onclick="submitLogin()">Login</button>
 </div>
 
-<!-- Public Parent Booking Modal -->
 <div class="modal" id="bookingModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3 id="modalTitle">Book Session</h3>
     <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
     
     <div id="parentFormFields">
-        <!-- Access Code Lock Check -->
         <div class="input-group" id="accessCodeWrapper" style="display:none;">
             <label style="color: #dc3545; font-weight: bold;">🔒 This is a Private Session. Enter Access Code *</label>
             <input type="text" id="parentAccessCode" oninput="validateForm()" placeholder="Obtain passcode directly from Coach Ben">
@@ -242,7 +234,6 @@
         <div class="input-group"><label>Parent Email *</label><input type="email" id="parentEmail" oninput="validateForm()"></div>
         <div class="input-group"><label>Student / Player Name *</label><input type="text" id="playerName" oninput="validateForm()"></div>
         
-        <!-- Coupon Code Tracker Row -->
         <div class="input-group">
             <label>Promo / Coupon Code</label>
             <div style="display: flex; gap: 8px;">
@@ -289,10 +280,17 @@
         <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
 
+    <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
+        <h4 id="activeRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #0070ba; border-bottom: 2px solid #0070ba; padding-bottom: 4px;">Active Roster</h4>
+        <div id="activeRosterList" style="margin-bottom: 20px;"></div>
+
+        <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
+        <div id="waitlistRosterList" style="margin-bottom: 25px;"></div>
+    </div>
+
     <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
 </div>
 
-<!-- Coach Create Slot Modal -->
 <div class="modal" id="createSlotModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Create New Training Time Slot</h3>
@@ -303,8 +301,8 @@
     <div class="input-group">
         <label>Event Group Classification</label>
         <select id="newEventType">
-            <option value="large">Large Group Skill Clinic</option>
-            <option value="small">Small Group Session</option>
+            <option value="large">Large Group Skill Clinic (Max 25)</option>
+            <option value="small">Small Group Session (Max 6)</option>
         </select>
     </div>
     <div class="input-group">
@@ -317,13 +315,11 @@
     <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
 </div>
 
-<!-- Coach Coupon Management Modal -->
 <div class="modal" id="couponManagerModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>🎟️ Promo & Coupon Vault</h3>
     <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
 
-    <!-- Creation Mini-Form -->
     <h4 style="margin-bottom: 10px; font-size: 14px; text-transform: uppercase; color: #666;">Create New Code</h4>
     <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 20px; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #eee;">
         <div style="flex: 2;">
@@ -344,11 +340,9 @@
         <button class="btn btn-primary" style="padding: 7px 15px; font-size: 13px; height: 31px;" onclick="submitCreateCoupon()">Add</button>
     </div>
 
-    <!-- Active List Grid Wrapper -->
     <h4 style="margin-bottom: 10px; font-size: 14px; text-transform: uppercase; color: #666;">Active Vault Routines</h4>
     <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
-        <!-- Live row elements will inject here -->
-    </div>
+        </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
@@ -389,13 +383,17 @@
                         }
 
                         const events = filteredData.map(session => {
-                            const isFull = session.active_count >= 25;
+                            const isSmallGroup = session.event_type === 'small';
+                            const targetCap = isSmallGroup ? 6 : 25;
+                            const targetWaitlistCap = isSmallGroup ? 3 : 15;
+                            
+                            const isFull = session.active_count >= targetCap;
                             const isLocked = session.access_code && session.access_code !== "";
                             const titlePrefix = isLocked ? "🔒 " : "";
 
                             return {
                                 id: session.id,
-                                title: `${titlePrefix}${session.title} (${session.active_count}/25)`,
+                                title: `${titlePrefix}${session.title} (${session.active_count}/${targetCap})`,
                                 start: session.start_time,
                                 end: session.end_time,
                                 backgroundColor: isFull ? '#555555' : '#0070ba',
@@ -403,8 +401,11 @@
                                 extendedProps: { 
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
-                                price: session.price,
-                                    access_code: session.access_code
+                                    price: session.price,
+                                    access_code: session.access_code,
+                                    event_type: session.event_type,
+                                    maxActive: targetCap,
+                                    maxWaitlist: targetWaitlistCap
                                 }
                             };
                         });
@@ -476,6 +477,8 @@
     }
 
     function validateForm() {
+        if (adminToken) return;
+
         const parentName = document.getElementById('parentName').value.trim();
         const parentEmail = document.getElementById('parentEmail').value.trim();
         const playerName = document.getElementById('playerName').value.trim();
@@ -503,8 +506,9 @@
     function openBookingModal(event) {
         selectedEvent = event;
         const props = event.extendedProps;
+        
         document.getElementById('modalTitle').innerText = event.title;
-        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/25 | Waitlist: ${props.waitlistCount}/15`;
+        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
 
         document.getElementById('parentName').value = "";
         document.getElementById('parentEmail').value = "";
@@ -521,9 +525,17 @@
         if (adminToken) {
             document.getElementById('parentFormFields').style.display = 'none';
             document.getElementById('deleteSessionBtn').style.display = 'block';
+            document.getElementById('coachRosterPanel').style.display = 'block';
+            
+            // Adjust administrative header parameters context tags matching the active bounds
+            document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
+            document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
+
+            loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
             document.getElementById('deleteSessionBtn').style.display = 'none';
+            document.getElementById('coachRosterPanel').style.display = 'none';
             
             if (props.access_code && props.access_code !== "") {
                 document.getElementById('accessCodeWrapper').style.display = 'block';
@@ -532,7 +544,7 @@
                 document.getElementById('accessCodeWrapper').style.display = 'none';
             }
 
-            if (props.activeCount >= 25) {
+            if (props.activeCount >= props.maxActive) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
             } else {
@@ -699,6 +711,86 @@
             body: JSON.stringify({ token: adminToken })
         }).then(res => res.json()).then(() => {
             loadCouponVaultList();
+        });
+    }
+
+    // --- LIVE COACH ROSTER INTERFACE HANDLERS ---
+    function loadActiveRosterDashboard(sessionId) {
+        const activeDiv = document.getElementById('activeRosterList');
+        const waitDiv = document.getElementById('waitlistRosterList');
+        
+        activeDiv.innerHTML = `<p style="font-size:12px; color:#999;">Fetching active skaters...</p>`;
+        waitDiv.innerHTML = `<p style="font-size:12px; color:#999;">Fetching alternates...</p>`;
+
+        fetch(`/api/admin/sessions/${sessionId}/roster`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.active.length === 0) {
+                activeDiv.innerHTML = `<p style="font-size:13px; color:#666; font-style:italic; background:#f9f9f9; padding:8px; border-radius:4px;">No players registered for this slot yet.</p>`;
+            } else {
+                let html = `<table style="width:100%; font-size:12px; border-collapse:collapse; text-align:left;">`;
+                data.active.forEach((p, index) => {
+                    html += `<tr style="border-bottom:1px solid #eee; height:35px;">
+                        <td style="font-weight:bold; width:5%;">${index + 1}.</td>
+                        <td style="font-weight:bold; width:45%; color:#333;">${p.player_name} <span style="font-weight:normal; font-size:10px; color:#666; display:block;">P: ${p.parent_name}</span></td>
+                        <td style="text-align:right; gap:4px;">
+                            <button class="btn" style="background:#ffc107; color:black; padding:4px 8px; font-size:11px; margin-right:4px;" onclick="demotePlayerToWaitlist(${p.id})">Waitlist ↴</button>
+                            <button class="btn btn-danger" style="padding:4px 8px; font-size:11px; width:auto; margin:0;" onclick="removePlayerFromRoster(${p.id})">Remove</button>
+                        </td>
+                    </tr>`;
+                });
+                html += `</table>`;
+                activeDiv.innerHTML = html;
+            }
+
+            if (data.waitlist.length === 0) {
+                waitDiv.innerHTML = `<p style="font-size:13px; color:#666; font-style:italic; background:#f9f9f9; padding:8px; border-radius:4px;">Waitlist is clean and empty.</p>`;
+            } else {
+                let html = `<table style="width:100%; font-size:12px; border-collapse:collapse; text-align:left;">`;
+                data.waitlist.forEach((p, index) => {
+                    html += `<tr style="border-bottom:1px solid #eee; height:35px;">
+                        <td style="font-weight:bold; width:5%; color:#666;">W${index + 1}.</td>
+                        <td style="font-weight:bold; width:55%; color:#555;">${p.player_name}</td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-danger" style="padding:4px 8px; font-size:11px; width:auto; margin:0;" onclick="removePlayerFromRoster(${p.id})">Remove</button>
+                        </td>
+                    </tr>`;
+                });
+                html += `</table>`;
+                waitDiv.innerHTML = html;
+            }
+        });
+    }
+
+    function removePlayerFromRoster(bookingId) {
+        if (!confirm("Are you sure you want to completely remove this skater from the roster?")) return;
+
+        fetch(`/api/admin/bookings/${bookingId}/remove`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        }).then(res => res.json()).then(data => {
+            alert(data.message || "Player removed successfully.");
+            loadActiveRosterDashboard(selectedEvent.id);
+            calendar.refetchEvents();
+        });
+    }
+
+    function demotePlayerToWaitlist(bookingId) {
+        if (!confirm("Move this player to the waitlist and bump the next available alternate into the group slot?")) return;
+
+        fetch(`/api/admin/bookings/${bookingId}/demote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        }).then(res => res.json()).then(data => {
+            alert(data.message || "Roster reallocated cleanly.");
+            loadActiveRosterDashboard(selectedEvent.id);
+            calendar.refetchEvents();
         });
     }
 

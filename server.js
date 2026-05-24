@@ -88,36 +88,50 @@ app.post('/api/book', async (req, res) => {
         }
     }
 
-    const countQuery = `SELECT 
-        (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
-        (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
+    // Dynamic Capacity Calculation: Find out if the session is small or large group first
+    db.get(`SELECT event_type FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        if (err || !session) return res.status(400).json({ error: "Target training event session not found." });
 
-    db.get(countQuery, [session_id, session_id], (err, counts) => {
-        if (err) return res.status(500).json({ error: err.message });
+        // Set limits dynamically based on classification criteria metrics
+        let maxActive = 25;
+        let maxWaitlist = 15;
 
-        let status = 'active';
-        if (counts.active >= 25) {
-            if (counts.waitlist >= 15) {
-                return res.status(400).json({ error: "This training session and waitlist are completely full." });
-            }
-            status = 'waitlist';
+        if (session.event_type === 'small') {
+            maxActive = 6;
+            maxWaitlist = 3;
         }
 
-        const waiverTimestamp = new Date().toISOString(); 
-        const waiverAcceptedFlag = 1;
+        const countQuery = `SELECT 
+            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
+            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
 
-        const insertQuery = `
-            INSERT INTO bookings (
-                session_id, player_name, parent_name, parent_email, 
-                status, paypal_order_id, waiver_accepted, waiver_timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-        db.run(insertQuery, [
-            session_id, player_name, parent_name, parent_email, status, 
-            paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
-        ], function(err) {
+        db.get(countQuery, [session_id, session_id], (err, counts) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, status: status, booking_id: this.lastID });
+
+            let status = 'active';
+            if (counts.active >= maxActive) {
+                if (counts.waitlist >= maxWaitlist) {
+                    return res.status(400).json({ error: `This training session and its waitlist are completely full.` });
+                }
+                status = 'waitlist';
+            }
+
+            const waiverTimestamp = new Date().toISOString(); 
+            const waiverAcceptedFlag = 1;
+
+            const insertQuery = `
+                INSERT INTO bookings (
+                    session_id, player_name, parent_name, parent_email, 
+                    status, paypal_order_id, waiver_accepted, waiver_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+            db.run(insertQuery, [
+                session_id, player_name, parent_name, parent_email, status, 
+                paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
+            ], function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, status: status, booking_id: this.lastID });
+            });
         });
     });
 });
@@ -131,7 +145,6 @@ app.post('/api/admin/login', (req, res) => {
     }
 
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-        // Signs a secure cryptographic payload containing an administrative authorization claim
         const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
         return res.json({ success: true, token: token });
     }
@@ -147,7 +160,7 @@ function verifyAdminToken(req, res, next) {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.adminContext = decoded;
-        next(); // Token checks passed perfectly. Proceed cleanly to route handling mechanics.
+        next(); 
     } catch (err) {
         return res.status(401).json({ error: "Your portal login session has expired. Please refresh and log back in." });
     }
@@ -214,6 +227,79 @@ app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
         res.json({ success: true });
     });
 });
+
+// 10. ADMIN ONLY: Fetch active roster and waitlist for a specific session block
+app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
+    const sessionId = req.params.id;
+    const query = `SELECT id, player_name, parent_name, parent_email, status, created_at 
+                   FROM bookings 
+                   WHERE session_id = ? 
+                   ORDER BY status ASC, created_at ASC`;
+    
+    db.all(query, [sessionId], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        const active = rows.filter(r => r.status === 'active');
+        const waitlist = rows.filter(r => r.status === 'waitlist');
+        res.json({ active, waitlist });
+    });
+});
+
+// 11. ADMIN ONLY: Remove player from roster entirely (manually cancels/drops spot)
+app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
+    const bookingId = req.params.id;
+    
+    db.get(`SELECT session_id, status FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
+        if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
+        
+        const sessionId = booking.session_id;
+        const wasActive = booking.status === 'active';
+
+        db.run(`DELETE FROM bookings WHERE id = ?`, [bookingId], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+
+            // If an active player was dropped, promote the next waitlist player instantly
+            if (wasActive) {
+                promoteNextWaitlistPlayer(sessionId, res);
+            } else {
+                res.json({ success: true, message: "Player removed from waitlist successfully." });
+            }
+        });
+    });
+});
+
+// 12. ADMIN ONLY: Push active player down to waitlist and pull next player up
+app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
+    const bookingId = req.params.id;
+
+    db.get(`SELECT session_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
+        if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
+        
+        const sessionId = booking.session_id;
+
+        db.run(`UPDATE bookings SET status = 'waitlist' WHERE id = ?`, [bookingId], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+
+            promoteNextWaitlistPlayer(sessionId, res);
+        });
+    });
+});
+
+// AUTOMATED LOGIC CONTROLLER: Upgrades the longest-waiting alternate player to active status
+function promoteNextWaitlistPlayer(sessionId, res) {
+    db.get(`SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`, [sessionId], (err, nextUp) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        if (nextUp) {
+            db.run(`UPDATE bookings SET status = 'active' WHERE id = ?`, [nextUp.id], (updateErr) => {
+                if (updateErr) return res.status(500).json({ error: updateErr.message });
+                res.json({ success: true, message: "Roster updated. Next waitlist player promoted automatically." });
+            });
+        } else {
+            res.json({ success: true, message: "Player removed. Waitlist is completely empty." });
+        }
+    });
+}
 
 // Start the Application Engine
 const PORT = process.env.PORT || 3000;
