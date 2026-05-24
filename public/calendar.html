@@ -851,4 +851,46 @@
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
-            localStorage
+            localStorage.removeItem('coach_admin_token'); // Purge token footprint cleanly
+            applyCoachUIMode(false);
+            alert("Logged out.");
+            calendar.refetchEvents(); 
+        } else {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('loginModal').style.display = 'block';
+        }
+    }
+    
+    function submitLogin() {
+        fetch('/api/admin/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                adminToken = data.token;
+                localStorage.setItem('coach_admin_token', data.token); // Securely bind session tokens locally
+                applyCoachUIMode(true);
+                closeAllModals();
+                calendar.refetchEvents(); 
+            } else { alert("Authorization failed."); }
+        });
+    }
+    
+    function closeAllModals() {
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('bookingModal').style.display = 'none';
+        document.getElementById('createSlotModal').style.display = 'none';
+        document.getElementById('couponManagerModal').style.display = 'none';
+        
+        const passInput = document.getElementById('adminPass');
+        const toggleIcon = document.getElementById('passwordToggleView');
+        if (passInput) { passInput.type = 'password'; passInput.value = ''; }
+        if (toggleIcon) { toggleIcon.innerText = '👁️'; }
+    }
+</script>
+</body>
+</html>
