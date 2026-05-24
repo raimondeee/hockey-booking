@@ -23,8 +23,6 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
 // Helper function to fetch an authorization token from PayPal's Live production API
 async function getPayPalAccessToken() {
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
-    
-    // Dynamically toggle between testing sandbox and real live production servers
     const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
     
     const response = await fetch(`${paypalHost}/v1/oauth2/token`, {
@@ -65,72 +63,79 @@ app.post('/api/validate-coupon', (req, res) => {
     });
 });
 
-// 3. Public: Submit a registration (Verifies transactions directly via PayPal API and locks legal waivers)
+// 3. Public: Submit a registration (Enforces security blacklist interceptions, verifies PayPal, locks waivers)
 app.post('/api/book', async (req, res) => {
     const { session_id, player_name, parent_email, parent_name, paypal_order_id } = req.body;
+    if (!parent_email) return res.status(400).json({ error: "Parent email pattern is required for mapping." });
 
-    if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE') {
-        try {
-            const accessToken = await getPayPalAccessToken();
-            const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
-            
-            const verifyResponse = await fetch(`${paypalHost}/v2/checkout/orders/${paypal_order_id}`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
-            });
-            const orderDetails = await verifyResponse.json();
+    const cleanEmail = parent_email.toLowerCase().trim();
 
-            if (orderDetails.status !== 'COMPLETED') {
-                return res.status(400).json({ error: "Payment verification failed. Roster spot rejected." });
-            }
-        } catch (error) {
-            return res.status(500).json({ error: "Unable to complete security handshakes with payment gateway." });
-        }
-    }
-
-    // Dynamic Capacity Calculation: Find out if the session is small or large group first
-    db.get(`SELECT event_type FROM sessions WHERE id = ?`, [session_id], (err, session) => {
-        if (err || !session) return res.status(400).json({ error: "Target training event session not found." });
-
-        // Set limits dynamically based on classification criteria metrics
-        let maxActive = 25;
-        let maxWaitlist = 15;
-
-        if (session.event_type === 'small') {
-            maxActive = 6;
-            maxWaitlist = 3;
+    // INTERCEPT CHECK: Halt blacklisted consumers at the structural gate
+    db.get(`SELECT email FROM banned_emails WHERE email = ?`, [cleanEmail], async (err, banRecord) => {
+        if (err) return res.status(500).json({ error: "Internal security handshake check fault." });
+        
+        if (banRecord) {
+            return res.status(403).json({ error: "Registration denied. Please contact Coach Ben directly for scheduling alternatives." });
         }
 
-        const countQuery = `SELECT 
-            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
-            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
+        // blacklisted check clear. Proceed to verify order tokens if applicable
+        if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE') {
+            try {
+                const accessToken = await getPayPalAccessToken();
+                const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+                
+                const verifyResponse = await fetch(`${paypalHost}/v2/checkout/orders/${paypal_order_id}`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+                });
+                const orderDetails = await verifyResponse.json();
 
-        db.get(countQuery, [session_id, session_id], (err, counts) => {
-            if (err) return res.status(500).json({ error: err.message });
-
-            let status = 'active';
-            if (counts.active >= maxActive) {
-                if (counts.waitlist >= maxWaitlist) {
-                    return res.status(400).json({ error: `This training session and its waitlist are completely full.` });
+                if (orderDetails.status !== 'COMPLETED') {
+                    return res.status(400).json({ error: "Payment verification checks dropped. Roster spot rejected." });
                 }
-                status = 'waitlist';
+            } catch (error) {
+                return res.status(500).json({ error: "Unable to complete security processing with merchant gateway." });
             }
+        }
 
-            const waiverTimestamp = new Date().toISOString(); 
-            const waiverAcceptedFlag = 1;
+        // Dynamic Capacity Check based on active event classifications
+        db.get(`SELECT event_type FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+            if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
-            const insertQuery = `
-                INSERT INTO bookings (
-                    session_id, player_name, parent_name, parent_email, 
-                    status, paypal_order_id, waiver_accepted, waiver_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            let maxActive = session.event_type === 'small' ? 6 : 25;
+            let maxWaitlist = session.event_type === 'small' ? 3 : 15;
 
-            db.run(insertQuery, [
-                session_id, player_name, parent_name, parent_email, status, 
-                paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
-            ], function(err) {
+            const countQuery = `SELECT 
+                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
+                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
+
+            db.get(countQuery, [session_id, session_id], (err, counts) => {
                 if (err) return res.status(500).json({ error: err.message });
-                res.json({ success: true, status: status, booking_id: this.lastID });
+
+                let status = 'active';
+                if (counts.active >= maxActive) {
+                    if (counts.waitlist >= maxWaitlist) {
+                        return res.status(400).json({ error: `This training session and its waitlist bounds are completely full.` });
+                    }
+                    status = 'waitlist';
+                }
+
+                const waiverTimestamp = new Date().toISOString(); 
+                const waiverAcceptedFlag = 1;
+
+                const insertQuery = `
+                    INSERT INTO bookings (
+                        session_id, player_name, parent_name, parent_email, 
+                        status, paypal_order_id, waiver_accepted, waiver_timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+                db.run(insertQuery, [
+                    session_id, player_name, parent_name, cleanEmail, status, 
+                    paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
+                ], function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, status: status, booking_id: this.lastID });
+                });
             });
         });
     });
@@ -139,7 +144,6 @@ app.post('/api/book', async (req, res) => {
 // 4. Admin Portal: System Authentication endpoint (Issues secure dynamic tokens expiring in 2 hours)
 app.post('/api/admin/login', (req, res) => {
     const { username, password } = req.body;
-    
     if (!ADMIN_PASSWORD) {
         return res.status(500).json({ error: "Server authentication values are not configured on the dashboard host." });
     }
@@ -154,7 +158,6 @@ app.post('/api/admin/login', (req, res) => {
 // --- ENFORCED MIDDLEWARE: Protects down-line Admin routes using cryptographic verification loops ---
 function verifyAdminToken(req, res, next) {
     const token = req.body.token || (req.headers['authorization'] ? req.headers['authorization'].split(' ')[1] : null);
-    
     if (!token) return res.status(403).json({ error: "Access denied. Auth token footprint is missing." });
 
     try {
@@ -169,7 +172,6 @@ function verifyAdminToken(req, res, next) {
 // 5. Admin Portal: Create an empty calendar slot
 app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
     const { title, start_time, end_time, price, event_type, access_code } = req.body; 
-
     const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code) VALUES (?, ?, ?, ?, ?, ?)`;
     db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null], function(err) {
         if (err) return res.status(500).json({ error: err.message });
@@ -180,7 +182,6 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
 // 6. Admin Portal: Delete a session and purge connected registrations
 app.delete('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
-
     db.run(`DELETE FROM bookings WHERE session_id = ?`, [sessionId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         
@@ -209,9 +210,7 @@ app.post('/api/admin/coupons/create', verifyAdminToken, (req, res) => {
 
     db.run(insertQuery, [cleanCode, discount_type, parseFloat(discount_value)], function(err) {
         if (err) {
-            if (err.message.includes("UNIQUE")) {
-                return res.status(400).json({ error: "A coupon with this exact code name already exists." });
-            }
+            if (err.message.includes("UNIQUE")) return res.status(400).json({ error: "A coupon with this exact code name already exists." });
             return res.status(500).json({ error: err.message });
         }
         res.json({ success: true, id: this.lastID });
@@ -221,14 +220,13 @@ app.post('/api/admin/coupons/create', verifyAdminToken, (req, res) => {
 // 9. Admin Portal: Terminate/Revoke an active coupon code by index key
 app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
     const couponId = req.params.id;
-
     db.run(`DELETE FROM coupons WHERE id = ?`, [couponId], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
 });
 
-// 10. ADMIN ONLY: Fetch active roster and waitlist for a specific session block
+// 10. Admin Portal: Fetch active roster and waitlist for a specific session block
 app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
     const query = `SELECT id, player_name, parent_name, parent_email, status, created_at 
@@ -238,17 +236,15 @@ app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
     
     db.all(query, [sessionId], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        
         const active = rows.filter(r => r.status === 'active');
         const waitlist = rows.filter(r => r.status === 'waitlist');
         res.json({ active, waitlist });
     });
 });
 
-// 11. ADMIN ONLY: Remove player from roster entirely (manually cancels/drops spot)
+// 11. Admin Portal: Remove player from roster entirely (manually cancels/drops spot)
 app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
     const bookingId = req.params.id;
-    
     db.get(`SELECT session_id, status FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
         
@@ -257,31 +253,50 @@ app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
 
         db.run(`DELETE FROM bookings WHERE id = ?`, [bookingId], function(err) {
             if (err) return res.status(500).json({ error: err.message });
-
-            // If an active player was dropped, promote the next waitlist player instantly
-            if (wasActive) {
-                promoteNextWaitlistPlayer(sessionId, res);
-            } else {
-                res.json({ success: true, message: "Player removed from waitlist successfully." });
-            }
+            if (wasActive) promoteNextWaitlistPlayer(sessionId, res);
+            else res.json({ success: true, message: "Player removed from waitlist successfully." });
         });
     });
 });
 
-// 12. ADMIN ONLY: Push active player down to waitlist and pull next player up
+// 12. Admin Portal: Push active player down to waitlist and pull next player up
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
     const bookingId = req.params.id;
-
     db.get(`SELECT session_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
         
         const sessionId = booking.session_id;
-
         db.run(`UPDATE bookings SET status = 'waitlist' WHERE id = ?`, [bookingId], function(err) {
             if (err) return res.status(500).json({ error: err.message });
-
             promoteNextWaitlistPlayer(sessionId, res);
         });
+    });
+});
+
+// 13. NEW ADMIN ROUTE: Append an email address to the security blacklist vault
+app.post('/api/admin/blacklist/add', verifyAdminToken, (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "No target email provided." });
+
+    const targetEmail = email.toLowerCase().trim();
+    db.run(`INSERT INTO banned_emails (email) VALUES (?)`, [targetEmail], function(err) {
+        if (err) {
+            if (err.message.includes("UNIQUE")) return res.status(400).json({ error: "This specific user profile is already locked out." });
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, message: `Successfully blacklisted ${targetEmail} from system access loops.` });
+    });
+});
+
+// 14. NEW ADMIN ROUTE: Remove an email from the blacklist vault (Lift ban)
+app.delete('/api/admin/blacklist/remove', verifyAdminToken, (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "No email pattern passed." });
+
+    const targetEmail = email.toLowerCase().trim();
+    db.run(`DELETE FROM banned_emails WHERE email = ?`, [targetEmail], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true, message: `Ban cleared safely for user account record: ${targetEmail}.` });
     });
 });
 
