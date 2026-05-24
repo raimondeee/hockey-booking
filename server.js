@@ -1,4 +1,4 @@
-\const express = require('express');
+const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken'); 
@@ -368,8 +368,8 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
 });
 
 function promoteNextWaitlistPlayer(sessionId, res) {
-    db.get suicide = `SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`;
-    db.get(suicide, [sessionId], (err, nextUp) => {
+    const waitlistQuery = `SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`;
+    db.get(waitlistQuery, [sessionId], (err, nextUp) => {
         if (err) return res.status(500).json({ error: err.message });
         if (nextUp) {
             db.run(`UPDATE bookings SET status = 'active' WHERE id = ?`, [nextUp.id], (updateErr) => {
