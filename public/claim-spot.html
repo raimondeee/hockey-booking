@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ben Stadey Hockey Training | Secure Roster Checkout</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9fa; margin: 0; padding: 40px 20px; color: #333; }
+        .checkout-card { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); padding: 30px; box-sizing: border-box; }
+        .logo-area { text-align: center; margin-bottom: 25px; border-bottom: 2px solid #0070ba; padding-bottom: 15px; }
+        .logo-area h2 { margin: 0; color: #0070ba; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .alert-banner { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 12px 15px; border-radius: 4px; font-size: 13px; font-weight: bold; margin-bottom: 20px; line-height: 1.4; }
+        .details-list { background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+        .details-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 6px; }
+        .details-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+        .details-label { color: #64748b; font-weight: bold; }
+        .details-value { font-weight: bold; color: #1e293b; }
+
+        .waiver-box { background: #f8fafc; border: 1px solid #cbd5e1; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #475569; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
+        .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 20px; font-size: 13px; font-weight: bold; }
+        .waiver-checkbox-group input { margin-top: 3px; cursor: pointer; }
+
+        #paypal-button-wrapper { position: relative; margin-top: 15px; }
+        .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; background: rgba(255,255,255,0.1); }
+        
+        .status-screen { text-align: center; padding: 40px 20px; display: none; }
+        .status-icon-success { font-size: 50px; color: #28a745; margin-bottom: 15px; }
+        .status-icon-error { font-size: 50px; color: #dc3545; margin-bottom: 15px; }
+        
+        .btn-home { display: inline-block; background: #6c757d; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; margin-top: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="checkout-card" id="mainCheckoutPanel">
+    <div class="logo-area">
+        <h2>Roster Spot Claim Portal</h2>
+    </div>
+
+    <div class="alert-banner">
+        ⚠️ 24-HOUR RESERVATION HOLD<br>
+        Your invitation to claim this opening expires exactly 24 hours after dispatch. Complete your checkout below to guarantee your active status spot on the roster.
+    </div>
+
+    <div id="loadingState" style="text-align: center; padding: 20px; font-weight: bold; color: #64748b;">
+        Verifying secure invitation parameters...
+    </div>
+
+    <div id="checkoutFormContent" style="display: none;">
+        <div class="details-list">
+            <div class="details-row"><span class="details-label">Training Session:</span><span class="details-value" id="lblSessionTitle">-</span></div>
+            <div class="details-row"><span class="details-label">Date & Time:</span><span class="details-value" id="lblSessionTime">-</span></div>
+            <div class="details-row"><span class="details-label">Registered Player:</span><span class="details-value" id="lblPlayerName">-</span></div>
+            <div class="details-row"><span class="details-label">Parent/Guardian:</span><span class="details-value" id="lblParentName">-</span></div>
+            <div class="details-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-label" style="color:#0070ba; font-size:15px;">Total Balance Due:</span><span class="details-value" style="color:#28a745; font-size:16px;" id="lblPrice">$0.00</span></div>
+        </div>
+
+        <label style="display:block; font-weight:bold; font-size:13px; margin-bottom:5px; text-transform:uppercase; color:#64748b;">Liability Waiver Acknowledgment *</label>
+        <div class="waiver-box">
+            <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
+            By completing this checkout and registration payment, I re-confirm my agreement to all liability policies, medical release rules, and safety protocol conditions originally accepted when joining the waitlist queue.<br><br>
+            I acknowledge that hockey is a physical sport involving inherent hazards. I voluntarily assume all risks of injury on behalf of the participant and completely release Ben Stadey Hockey Training and facility staff from any structural liability claims, damages, or expenses arising from participation.
+        </div>
+
+        <div class="waiver-checkbox-group">
+            <input type="checkbox" id="waiverCheckbox" onchange="togglePaypalState()">
+            <label for="waiverCheckbox">I have read, understood, and agree to the Waiver & Release terms.</label>
+        </div>
+
+        <div id="paypal-button-wrapper">
+            <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please accept the liability waiver terms to unlock checkout.')"></div>
+            <div id="paypal-button-container"></div>
+        </div>
+    </div>
+</div>
+
+<div class="checkout-card status-screen" id="successPanel">
+    <div class="status-icon-success">✓</div>
+    <h3 style="margin:0 0 10px 0; color:#28a745;">Roster Spot Confirmed!</h3>
+    <p style="font-size:14px; color:#475569; line-height:1.5; margin:0;">Payment captured successfully. Your position on the active training roster has been locked down. An automated receipt has been sent to your email, and Coach Ben has been notified.</p>
+    <a href="/calendar.html" class="btn-home">Go to Live Calendar</a>
+</div>
+
+<div class="checkout-card status-screen" id="errorPanel">
+    <div class="status-icon-error">✕</div>
+    <h3 style="margin:0 0 10px 0; color:#dc3545;" id="errorTitle">Invitation Invalid</h3>
+    <p style="font-size:14px; color:#475569; line-height:1.5; margin:0;" id="errorText">This invitation link is either broken, expired, or has already been used to complete registration.</p>
+    <a href="/calendar.html" class="btn-home">Return to Schedule</a>
+</div>
+
+<script src="https://www.paypal.com/sdk/js?client-id=test&currency=USD"></script>
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const bookingId = urlParams.get('booking_id');
+    
+    let targetRecordData = null;
+    let paypalActionsInstance = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!bookingId) {
+            showScreen('errorPanel');
+            return;
+        }
+        lookupInvitationContext();
+    });
+
+    function lookupInvitationContext() {
+        fetch('/api/claim-spot/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ booking_id: parseInt(bookingId) })
+        })
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('loadingState').style.display = 'none';
+            if (data.success) {
+                targetRecordData = data.record;
+                renderFormDetails();
+            } else {
+                document.getElementById('errorText').innerText = data.error || "Invitation expired or invalid.";
+                showScreen('errorPanel');
+            }
+        })
+        .catch(() => {
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('errorText').innerText = "Network connectivity error. Unable to synchronize authorization.";
+            showScreen('errorPanel');
+        });
+    }
+
+    function renderFormDetails() {
+        document.getElementById('lblSessionTitle').innerText = targetRecordData.title;
+        // Format the date string cleanly
+        const parsedDate = new Date(targetRecordData.start_time);
+        document.getElementById('lblSessionTime').innerText = parsedDate.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
+        document.getElementById('lblPlayerName').innerText = targetRecordData.player_name;
+        document.getElementById('lblParentName').innerText = targetRecordData.parent_name;
+        document.getElementById('lblPrice').innerText = `$${targetRecordData.price.toFixed(2)}`;
+
+        document.getElementById('checkoutFormContent').style.display = 'block';
+        initializePaypalButtons();
+    }
+
+    function togglePaypalState() {
+        const waiverChecked = document.getElementById('waiverCheckbox').checked;
+        if (waiverChecked) {
+            document.getElementById('paypalDisabledOverlay').style.display = 'none';
+            if (paypalActionsInstance) paypalActionsInstance.enable();
+        } else {
+            document.getElementById('paypalDisabledOverlay').style.display = 'block';
+            if (paypalActionsInstance) paypalActionsInstance.disable();
+        }
+    }
+
+    function initializePaypalButtons() {
+        paypal.Buttons({
+            onInit: function(data, actions) {
+                paypalActionsInstance = actions;
+                paypalActionsInstance.disable();
+            },
+            onClick: function() {
+                togglePaypalState();
+            },
+            createOrder: function(data, actions) {
+                return actions.order.create({
+                    purchase_units: [{
+                        amount: { value: targetRecordData.price.toString() }
+                    }]
+                });
+            },
+            onApprove: function(data, actions) {
+                return actions.order.capture().then(function(details) {
+                    executeRosterPromotionCheckout(details.id);
+                });
+            },
+            onError: function(err) {
+                alert("Gateway transmission error. Transaction declined.");
+            }
+        }).render('#paypal-button-container');
+    }
+
+    function executeRosterPromotionCheckout(paypalOrderId) {
+        document.getElementById('checkoutFormContent').style.display = 'none';
+        document.getElementById('loadingState').innerText = "Processing transactional authorization logs...";
+        document.getElementById('loadingState').style.display = 'block';
+
+        const payload = {
+            session_id: targetRecordData.session_id,
+            player_name: targetRecordData.player_name,
+            parent_email: targetRecordData.parent_email,
+            parent_name: targetRecordData.parent_name,
+            paypal_order_id: paypalOrderId,
+            existing_booking_id: targetRecordData.booking_id // Pass original database row index
+        };
+
+        fetch('/api/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('loadingState').style.display = 'none';
+            if (data.success) {
+                showScreen('successPanel');
+            } else {
+                document.getElementById('errorTitle').innerText = "Registration Processing Fault";
+                document.getElementById('errorText').innerText = data.error || "Roster spot transaction failed.";
+                showScreen('errorPanel');
+            }
+        });
+    }
+
+    function showScreen(panelId) {
+        document.getElementById('mainCheckoutPanel').style.display = (panelId === 'successPanel' || panelId === 'errorPanel') ? 'none' : 'block';
+        document.getElementById('successPanel').style.display = (panelId === 'successPanel') ? 'block' : 'none';
+        document.getElementById('errorPanel').style.display = (panelId === 'errorPanel') ? 'block' : 'none';
+    }
+</script>
+</body>
+</html>

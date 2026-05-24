@@ -24,6 +24,7 @@ db.serialize(() => {
         price REAL NOT NULL,
         event_type TEXT DEFAULT 'large',
         access_code TEXT DEFAULT NULL,
+        custom_capacity INTEGER DEFAULT NULL, -- Hook to allow Ben to manually override standard caps
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -34,10 +35,12 @@ db.serialize(() => {
         player_name TEXT NOT NULL,
         parent_name TEXT NOT NULL,
         parent_email TEXT NOT NULL,
-        status TEXT NOT NULL, -- 'active' or 'waitlist'
+        status TEXT NOT NULL, -- 'active', 'waitlist', or 'pending_payment'
         paypal_order_id TEXT,
         waiver_accepted INTEGER DEFAULT 0,
         waiver_timestamp TEXT,
+        queue_position INTEGER DEFAULT NULL,   -- Step-by-step sorting order tracking index
+        invitation_sent_at TEXT DEFAULT NULL, -- Timestamp to calculate the 24-hour expiration clock
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id)
     )`);
@@ -57,9 +60,24 @@ db.serialize(() => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`, (err) => {
-        if (err) console.error("Error setting up security blacklist storage schema mapping:", err.message);
-        else console.log("Administrative blacklist layer mounted safely inside core transactional database matrix.");
+    )`);
+
+    // ==========================================
+    // SAFE LIVE DATABASE MIGRATIONS
+    // ==========================================
+    // These run right after table initialization to guarantee existing live production databases
+    // scale smoothly without dropping any current schedules or skater history records.
+
+    db.run(`ALTER TABLE sessions ADD COLUMN custom_capacity INTEGER DEFAULT NULL`, (err) => {
+        // Silently swallow errors if columns already exist from previous startup attempts
+    });
+
+    db.run(`ALTER TABLE bookings ADD COLUMN queue_position INTEGER DEFAULT NULL`, (err) => {
+        // Silently swallow errors if column already exists
+    });
+
+    db.run(`ALTER TABLE bookings ADD COLUMN invitation_sent_at TEXT DEFAULT NULL`, (err) => {
+        // Silently swallow errors if column already exists
     });
 });
 

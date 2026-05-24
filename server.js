@@ -39,10 +39,36 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     });
 }
 
+// Background Expiration Sweeper Utility Function
+function runExpiredReservationsSweep(callback) {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    // Find all invitations that have aged past 24 hours without checking out
+    db.all(`SELECT id, session_id, player_name FROM bookings WHERE status = 'pending_payment' AND invitation_sent_at < ?`, [twentyFourHoursAgo], (err, expiredBookings) => {
+        if (err || !expiredBookings || expiredBookings.length === 0) {
+            return callback ? callback() : null;
+        }
+
+        let processedCount = 0;
+        expiredBookings.forEach(booking => {
+            // Drop expired holds back into standard waitlist queue and clear their timer stamp
+            db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [booking.id], (updateErr) => {
+                processedCount++;
+                // Trigger the next person in line to receive an invite for this opening
+                promoteNextWaitlistPlayer(booking.session_id);
+                
+                if (processedCount === expiredBookings.length && callback) {
+                    callback();
+                }
+            });
+        });
+    });
+}
+
 // Helper function to fetch an authorization token from PayPal's Live production API
 async function getPayPalAccessToken() {
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
-    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.sandbox.paypal.com';
     
     const response = await fetch(`${paypalHost}/v1/oauth2/token`, {
         method: 'POST',
@@ -55,17 +81,20 @@ async function getPayPalAccessToken() {
 
 // 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers
 app.get('/api/sessions', (req, res) => {
-    const query = `
-        SELECT s.*, 
-        SUM(CASE WHEN b.status = 'active' THEN 1 ELSE 0 END) as active_count,
-        SUM(CASE WHEN b.status = 'waitlist' THEN 1 ELSE 0 END) as waitlist_count
-        FROM sessions s
-        LEFT JOIN bookings b ON s.id = b.session_id
-        GROUP BY s.id`;
-    
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+    // Run the expiration logic sweep right before sending schedule updates to ensure client view precision
+    runExpiredReservationsSweep(() => {
+        const query = `
+            SELECT s.*, 
+            SUM(CASE WHEN b.status = 'active' THEN 1 ELSE 0 END) as active_count,
+            SUM(CASE WHEN b.status = 'waitlist' OR b.status = 'pending_payment' THEN 1 ELSE 0 END) as waitlist_count
+            FROM sessions s
+            LEFT JOIN bookings b ON s.id = b.session_id
+            GROUP BY s.id`;
+        
+        db.all(query, [], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
     });
 });
 
@@ -84,7 +113,7 @@ app.post('/api/validate-coupon', (req, res) => {
 
 // 3. Public: Submit a registration (Enforces security blacklist interceptions, verifies PayPal, locks waivers)
 app.post('/api/book', async (req, res) => {
-    const { session_id, player_name, parent_email, parent_name, paypal_order_id } = req.body;
+    const { session_id, player_name, parent_email, parent_name, paypal_order_id, existing_booking_id } = req.body;
     if (!parent_email) return res.status(400).json({ error: "Parent email pattern is required for mapping." });
 
     const cleanEmail = parent_email.toLowerCase().trim();
@@ -110,15 +139,29 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        db.get(`SELECT event_type FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        db.get(`SELECT event_type, custom_capacity FROM sessions WHERE id = ?`, [session_id], (err, session) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
-            let maxActive = session.event_type === 'small' ? 6 : 25;
+            // Honor custom_capacity override if configured, otherwise drop back to template standards
+            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 6 : 25);
             let maxWaitlist = session.event_type === 'small' ? 3 : 15;
+
+            // Handle the unique checkout flow for a waitlist player claiming an active position hold
+            if (existing_booking_id) {
+                db.get(`SELECT id, status FROM bookings WHERE id = ? AND session_id = ?`, [existing_booking_id, session_id], (err, bRecord) => {
+                    if (err || !bRecord) return res.status(400).json({ error: "Claim token footprint match missing." });
+                    
+                    db.run(`UPDATE bookings SET status = 'active', paypal_order_id = ?, invitation_sent_at = NULL WHERE id = ?`, [paypal_order_id, existing_booking_id], function(err) {
+                        if (err) return res.status(500).json({ error: err.message });
+                        return res.json({ success: true, status: 'active', booking_id: existing_booking_id });
+                    });
+                });
+                return;
+            }
 
             const countQuery = `SELECT 
                 (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
-                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
+                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND (status = 'waitlist' OR status = 'pending_payment')) as waitlist`;
 
             db.get(countQuery, [session_id, session_id], (err, counts) => {
                 if (err) return res.status(500).json({ error: err.message });
@@ -150,6 +193,23 @@ app.post('/api/book', async (req, res) => {
     });
 });
 
+// 3b. Public Landing Page Endpoint: Look up details for a player claiming an open spot
+app.post('/api/claim-spot/lookup', (req, res) => {
+    const { booking_id } = req.body;
+    const query = `
+        SELECT b.id as booking_id, b.player_name, b.parent_name, b.parent_email, b.status,
+               s.id as session_id, s.title, s.start_time, s.price
+        FROM bookings b
+        JOIN sessions s ON b.session_id = s.id
+        WHERE b.id = ? AND b.status = 'pending_payment'`;
+
+    db.get(query, [booking_id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(400).json({ error: "Invitation record is either invalid, expired, or completed." });
+        res.json({ success: true, record: row });
+    });
+});
+
 // 4. Admin Portal: System Authentication endpoint
 app.post('/api/admin/login', (req, res) => {
     const { username, password } = req.body;
@@ -176,6 +236,15 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
     db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id: this.lastID });
+    });
+});
+
+// 5b. Admin Portal: Override capacity settings on an individual session block level
+app.post('/api/admin/sessions/:id/capacity', verifyAdminToken, (req, res) => {
+    const capacityVal = req.body.custom_capacity ? parseInt(req.body.custom_capacity) : null;
+    db.run(`UPDATE sessions SET custom_capacity = ? WHERE id = ?`, [capacityVal, req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
     });
 });
 
@@ -217,9 +286,26 @@ app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
 
 // 10. Admin Portal: Fetch active roster and waitlist for a specific session block
 app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
-    db.all(`SELECT id, player_name, parent_name, parent_email, status FROM bookings WHERE session_id = ? ORDER BY status ASC, created_at ASC`, [req.params.id], (err, rows) => {
+    db.all(`SELECT id, player_name, parent_name, parent_email, status, invitation_sent_at FROM bookings WHERE session_id = ? ORDER BY status ASC, queue_position ASC, created_at ASC`, [req.params.id], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ active: rows.filter(r => r.status === 'active'), waitlist: rows.filter(r => r.status === 'waitlist') });
+        res.json({ 
+            active: rows.filter(r => r.status === 'active'), 
+            waitlist: rows.filter(r => r.status === 'waitlist' || r.status === 'pending_payment') 
+        });
+    });
+});
+
+// 10b. Admin Portal: Reorder structural waitlist queue indexes manually
+app.post('/api/admin/sessions/:id/reorder-waitlist', verifyAdminToken, (req, res) => {
+    const { ordered_ids } = req.body; // Expects array of row IDs in matching array sequence
+    if (!Array.isArray(ordered_ids)) return res.status(400).json({ error: "Malformed sorting mapping request context." });
+    
+    let processed = 0;
+    ordered_ids.forEach((id, index) => {
+        db.run(`UPDATE bookings SET queue_position = ? WHERE id = ?`, [index + 1, id], () => {
+            processed++;
+            if (processed === ordered_ids.length) res.json({ success: true });
+        });
     });
 });
 
@@ -239,7 +325,7 @@ app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
     db.get(`SELECT session_id FROM bookings WHERE id = ?`, [req.params.id], (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
-        db.run(`UPDATE bookings SET status = 'waitlist' WHERE id = ?`, [req.params.id], function(err) {
+        db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [req.params.id], function(err) {
             if (err) return res.status(500).json({ error: err.message });
             promoteNextWaitlistPlayer(booking.session_id, res);
         });
@@ -307,7 +393,7 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
         SELECT 
             COUNT(b.id) as total_registrations,
             SUM(s.price) as gross_revenue,
-            (SELECT COUNT(*) FROM bookings WHERE status = 'waitlist') as total_waitlisted
+            (SELECT COUNT(*) FROM bookings WHERE status = 'waitlist' OR status = 'pending_payment') as total_waitlisted
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.status = 'active'`;
@@ -316,11 +402,13 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
 
         // Calculate Capacity Utilization Rate percentages cleanly across active sessions
-        db.all(`SELECT id, event_type FROM sessions`, [], (err, sessions) => {
+        db.all(`SELECT id, event_type, custom_capacity FROM sessions`, [], (err, sessions) => {
             if (err) return res.status(500).json({ error: err.message });
 
             let maxPossibleCapacity = 0;
-            sessions.forEach(s => { maxPossibleCapacity += (s.event_type === 'small' ? 6 : 25); });
+            sessions.forEach(s => { 
+                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 6 : 25); 
+            });
 
             const totalActiveBookings = financeRow.total_registrations || 0;
             const utilizationRate = maxPossibleCapacity > 0 ? (totalActiveBookings / maxPossibleCapacity) * 100 : 0;
@@ -328,7 +416,7 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
             res.json({
                 success: true,
                 total_bookings: totalActiveBookings,
-                gross_earnings: financeRow.gross_revenue || 0,
+                gross_earnings: financeRow.financeRow ? financeRow.gross_revenue : (financeRow.gross_revenue || 0),
                 waitlist_count: financeRow.total_waitlisted || 0,
                 utilization_rate: utilizationRate
             });
@@ -338,7 +426,6 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
 
 // 17. Admin Portal: Audit specific promo code coupon redemption revenue metrics
 app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
-    // Queries each voucher along with tracking historical transaction records
     const query = `
         SELECT 
             c.code, c.discount_type, c.discount_value,
@@ -351,7 +438,7 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
                 END
             ) as total_revenue_subtracted
         FROM coupons c
-        LEFT JOIN bookings b ON b.paypal_order_id IS NOT NULL AND b.paypal_order_id != 'WAITLIST_FREE'
+        LEFT JOIN bookings b ON b.paypal_order_id IS NOT NULL AND b.paypal_order_id != 'WAITLIST_FREE' AND b.status = 'active'
         LEFT JOIN sessions s ON b.session_id = s.id
         GROUP BY c.id ORDER BY usage_count DESC`;
 
@@ -367,16 +454,46 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
     });
 });
 
-function promoteNextWaitlistPlayer(sessionId, res) {
-    const waitlistQuery = `SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`;
-    db.get(waitlistQuery, [sessionId], (err, nextUp) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (nextUp) {
-            db.run(`UPDATE bookings SET status = 'active' WHERE id = ?`, [nextUp.id], (updateErr) => {
-                if (updateErr) return res.status(500).json({ error: updateErr.message });
-                res.json({ success: true, message: "Roster updated. Next waitlist player promoted automatically." });
+function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
+    // Select the player with top sorting priority (lowest queue position, breaking ties with historical creation times)
+    const nextUpQuery = `SELECT id, parent_email, parent_name, player_name FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY queue_position ASC, created_at ASC LIMIT 1`;
+    
+    db.get(nextUpQuery, [sessionId], (err, nextPlayer) => {
+        if (err) {
+            if (optionalResContext) optionalResContext.status(500).json({ error: err.message });
+            return;
+        }
+        
+        if (nextPlayer) {
+            const timestampNow = new Date().toISOString();
+            
+            // Switch status footprint to 'pending_payment' to reserve the open ice slot
+            db.run(`UPDATE bookings SET status = 'pending_payment', invitation_sent_at = ? WHERE id = ?`, [timestampNow, nextPlayer.id], (updateErr) => {
+                if (updateErr) {
+                    if (optionalResContext) optionalResContext.status(500).json({ error: updateErr.message });
+                    return;
+                }
+
+                // Compile and broadcast the 24-hour checkout claim token notification email link
+                const claimUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}`;
+                const mailOptions = {
+                    from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+                    to: nextPlayer.parent_email,
+                    subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
+                    text: `Hi ${nextPlayer.parent_name},\n\nA roster opening is available for ${nextPlayer.player_name} in our upcoming training session!\n\nTo lock down this spot, please visit the link below to complete your checkout and secure payment registration parameters:\n\n${claimUrl}\n\n⚠️ IMPORTANT: This link holds your slot for exactly 24 hours. If registration payment is not completed before then, this position will automatically expire and forfeit to the next alternate player in line.\n\nBest regards,\nCoach Ben Stadey`
+                };
+
+                transporter.sendMail(mailOptions, (mailErr) => {
+                    if (mailErr) console.error("[ERROR] Failed sending waitlist notification email invite:", mailErr.message);
+                    
+                    if (optionalResContext) {
+                        resContext.json({ success: true, message: "Roster vacancy updated. Checkout invite broadcasted to next waitlisted contact." });
+                    }
+                });
             });
-        } else { res.json({ success: true, message: "Player removed. Waitlist is empty." }); }
+        } else {
+            if (optionalResContext) optionalResContext.json({ success: true, message: "Roster position cleared safely. Waitlist bounds are completely empty." });
+        }
     });
 }
 

@@ -157,13 +157,11 @@
 
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
-    <!-- Dedicated Private Redirect Path Hook -->
     <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 View Operations Dashboard →</a>
 </div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
 
-<!-- Login Modal -->
 <div class="modal" id="loginModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Coach Authentication</h3>
@@ -178,7 +176,6 @@
     <button class="btn btn-primary" style="width: 100%; margin-top: 10px;" onclick="submitLogin()">Login</button>
 </div>
 
-<!-- Booking & Admin Roster Modal -->
 <div class="modal" id="bookingModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3 id="modalTitle">Book Session</h3>
@@ -237,14 +234,20 @@
             <div id="paypal-button-container"></div>
         </div>
 
-        <!-- Free Registration Confirmation Action Trigger Element -->
         <button id="freeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitBooking(null)">Complete Free Registration</button>
         
         <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
 
-    <!-- Coach View Dashboard Panel -->
     <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
+        <div style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;">
+            <label style="font-size: 12px; font-weight: bold; color: #856404; text-transform: uppercase;">Set Max Roster Limit:</label>
+            <div style="display: flex; gap: 6px;">
+                <input type="number" id="customCapacityInput" style="width: 60px; padding: 4px; text-align: center; border: 1px solid #ccc; border-radius: 4px;" min="1">
+                <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; margin:0;" onclick="submitCustomCapacityOverride()">Update</button>
+            </div>
+        </div>
+
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0070ba; padding-bottom: 4px; margin-bottom: 8px;">
             <h4 id="activeRosterTitle" style="margin: 0; font-size: 14px; text-transform: uppercase; color: #0070ba;">Active Roster</h4>
             <button id="exportCsvBtn" class="btn" style="background: #28a745; color: white; padding: 4px 10px; font-size: 11px; margin: 0; display: none;" onclick="exportCurrentRosterToCsv()">📥 Export to Excel/CSV</button>
@@ -254,7 +257,6 @@
         <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
         <div id="waitlistRosterList" style="margin-bottom: 25px;"></div>
 
-        <!-- Broadcast Email Manager Extension Area Layout -->
         <div style="margin-top: 30px; background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 6px;">
             <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #333; letter-spacing: 0.5px;">📢 Broadcast Update to Roster</h4>
             <div class="input-group" style="margin-bottom: 8px;">
@@ -272,7 +274,6 @@
     <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
 </div>
 
-<!-- Create Slot Modal -->
 <div class="modal" id="createSlotModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>Create New Training Time Slot</h3>
@@ -291,7 +292,6 @@
     <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
 </div>
 
-<!-- Coupon Management Modal -->
 <div class="modal" id="couponManagerModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>🎟️ Promo & Coupon Vault</h3>
@@ -348,7 +348,8 @@
 
                         const events = filteredData.map(session => {
                             const isSmallGroup = session.event_type === 'small';
-                            const targetCap = isSmallGroup ? 6 : 25;
+                            // Dynamic logic: use custom override if present, else fallback to standard defaults
+                            const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 6 : 25);
                             const targetWaitlistCap = isSmallGroup ? 3 : 15;
                             const isFull = session.active_count >= targetCap;
                             const isLocked = session.access_code && session.access_code !== "";
@@ -368,7 +369,8 @@
                                     access_code: session.access_code,
                                     event_type: session.event_type,
                                     maxActive: targetCap,
-                                    maxWaitlist: targetWaitlistCap
+                                    maxWaitlist: targetWaitlistCap,
+                                    custom_capacity: session.custom_capacity
                                 }
                             };
                         });
@@ -442,7 +444,6 @@
         const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
         document.getElementById('waitlistBtn').disabled = !isFormValid;
 
-        // Toggle layout rules depending on if the transaction footprint reads as paid vs free waiver
         if (currentSessionPrice <= 0 && selectedEvent && selectedEvent.extendedProps.activeCount < selectedEvent.extendedProps.maxActive) {
             document.getElementById('paypal-button-wrapper').style.display = 'none';
             document.getElementById('freeSubmitBtn').style.display = isFormValid ? 'block' : 'none';
@@ -491,6 +492,7 @@
             document.getElementById('coachRosterPanel').style.display = 'block';
             document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
             document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
+            document.getElementById('customCapacityInput').value = props.custom_capacity || props.maxActive;
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
@@ -523,7 +525,6 @@
     }).render('#paypal-button-container');
 
     function submitBooking(orderId) {
-        // If the balance drops to 0 or less, intercept the pay tracking signature with WAIVED_FREE
         const finalOrderId = (currentSessionPrice <= 0) ? 'WAIVED_FREE' : orderId;
 
         const payload = {
@@ -569,6 +570,25 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+    }
+
+    function submitCustomCapacityOverride() {
+        const capVal = document.getElementById('customCapacityInput').value;
+        if (!capVal || capVal < 1) return;
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/capacity`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, custom_capacity: capVal })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert("Session maximum roster bounds updated.");
+                closeAllModals();
+                calendar.refetchEvents();
+            }
+        });
     }
     
     function deleteCurrentSession() {
@@ -665,12 +685,53 @@
             else {
                 let html = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
                 data.waitlist.forEach((p, index) => {
-                    html += `<tr style='border-bottom:1px solid #eee; height:35px;'>
-                        <td>W${index + 1}. ${p.player_name}</td>
-                        <td style='text-align:right;'><button class='btn btn-danger' style='padding:3px 6px; font-size:10px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button></td>
+                    const isPending = p.status === 'pending_payment';
+                    let statusLabel = `W${index + 1}`;
+                    let rowStyle = "";
+                    
+                    if (isPending) {
+                        statusLabel = `⏳ HOLD`;
+                        rowStyle = "background: #fff3cd;";
+                    }
+
+                    html += `<tr style='border-bottom:1px solid #eee; height:40px; ${rowStyle}'>
+                        <td style='padding:4px 8px;'>
+                            <span style='font-weight:bold; font-size:11px; display:inline-block; width:50px;'>${statusLabel}</span>
+                            <b>${p.player_name}</b>
+                            ${isPending ? `<br><span style='color:#856404; font-size:10px; font-style:italic;'>Notified. Awaiting payment checkout.</span>` : ''}
+                        </td>
+                        <td style='text-align:right; padding-right:8px; white-space:nowrap;'>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, -1)'>▲</button>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, 1)'>▼</button>
+                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px; margin-left:4px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
+                        </td>
                     </tr>`;
                 });
                 waitDiv.innerHTML = html + `</table>`;
+            }
+        });
+    }
+
+    function shiftQueueOrder(currentIndex, directionalShift) {
+        const targetIndex = currentIndex + directionalShift;
+        if (targetIndex < 0 || targetIndex >= currentRosterData.waitlist.length) return;
+
+        // Swapping matching record parameters in the memory array footprint
+        const temp = currentRosterData.waitlist[currentIndex];
+        currentRosterData.waitlist[currentIndex] = currentRosterData.waitlist[targetIndex];
+        currentRosterData.waitlist[targetIndex] = temp;
+
+        const orderedIds = currentRosterData.waitlist.map(player => player.id);
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/reorder-waitlist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, ordered_ids: orderedIds })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                loadActiveRosterDashboard(selectedEvent.id);
             }
         });
     }
@@ -704,7 +765,7 @@
             const player = `"${p.player_name.replace(/"/g, '""')}"`;
             const parent = `"${p.parent_name.replace(/"/g, '""')}"`;
             const email = `"${p.parent_email.replace(/"/g, '""')}"`;
-            csvContent += `W${idx + 1},Waitlist,${player},${parent},${email}\n`;
+            csvContent += `W${idx + 1},${p.status},${player},${parent},${email}\n`;
         });
 
         const rawTitle = selectedEvent ? selectedEvent.title.split('(')[0].trim() : "Hockey_Roster";
@@ -790,46 +851,4 @@
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
-            localStorage.removeItem('coach_admin_token'); // Purge token footprint cleanly
-            applyCoachUIMode(false);
-            alert("Logged out.");
-            calendar.refetchEvents(); 
-        } else {
-            document.getElementById('overlay').style.display = 'block';
-            document.getElementById('loginModal').style.display = 'block';
-        }
-    }
-    
-    function submitLogin() {
-        fetch('/api/admin/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if(data.success) {
-                adminToken = data.token;
-                localStorage.setItem('coach_admin_token', data.token); // Securely bind session tokens locally
-                applyCoachUIMode(true);
-                closeAllModals();
-                calendar.refetchEvents(); 
-            } else { alert("Authorization failed."); }
-        });
-    }
-    
-    function closeAllModals() {
-        document.getElementById('overlay').style.display = 'none';
-        document.getElementById('loginModal').style.display = 'none';
-        document.getElementById('bookingModal').style.display = 'none';
-        document.getElementById('createSlotModal').style.display = 'none';
-        document.getElementById('couponManagerModal').style.display = 'none';
-        
-        const passInput = document.getElementById('adminPass');
-        const toggleIcon = document.getElementById('passwordToggleView');
-        if (passInput) { passInput.type = 'password'; passInput.value = ''; }
-        if (toggleIcon) { toggleIcon.innerText = '👁️'; }
-    }
-</script>
-</body>
-</html>
+            localStorage
