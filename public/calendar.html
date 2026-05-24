@@ -203,7 +203,7 @@
             <span id="couponFeedback" style="font-size:12px; font-weight:bold; display:block; margin-top:4px;"></span>
         </div>
 
-<label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
+        <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
         <div class="waiver-box">
             <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
             By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Ben Stadey Hockey Training (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant:<br><br>
@@ -236,6 +236,9 @@
             <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all fields to unlock payment.')"></div>
             <div id="paypal-button-container"></div>
         </div>
+
+        <!-- Free Registration Confirmation Action Trigger Element -->
+        <button id="freeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitBooking(null)">Complete Free Registration</button>
         
         <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
@@ -439,12 +442,26 @@
         const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
         document.getElementById('waitlistBtn').disabled = !isFormValid;
 
-        if (isFormValid) {
-            document.getElementById('paypalDisabledOverlay').style.display = 'none';
-            if (paypalActionsInstance) paypalActionsInstance.enable();
+        // Toggle layout rules depending on if the transaction footprint reads as paid vs free waiver
+        if (currentSessionPrice <= 0 && selectedEvent && selectedEvent.extendedProps.activeCount < selectedEvent.extendedProps.maxActive) {
+            document.getElementById('paypal-button-wrapper').style.display = 'none';
+            document.getElementById('freeSubmitBtn').style.display = isFormValid ? 'block' : 'none';
+            document.getElementById('freeSubmitBtn').disabled = !isFormValid;
         } else {
-            document.getElementById('paypalDisabledOverlay').style.display = 'block';
-            if (paypalActionsInstance) paypalActionsInstance.disable();
+            document.getElementById('freeSubmitBtn').style.display = 'none';
+            if (selectedEvent && selectedEvent.extendedProps.activeCount >= selectedEvent.extendedProps.maxActive) {
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
+            } else {
+                document.getElementById('paypal-button-wrapper').style.display = 'block';
+            }
+
+            if (isFormValid) {
+                document.getElementById('paypalDisabledOverlay').style.display = 'none';
+                if (paypalActionsInstance) paypalActionsInstance.enable();
+            } else {
+                document.getElementById('paypalDisabledOverlay').style.display = 'block';
+                if (paypalActionsInstance) paypalActionsInstance.disable();
+            }
         }
     }
 
@@ -506,12 +523,15 @@
     }).render('#paypal-button-container');
 
     function submitBooking(orderId) {
+        // If the balance drops to 0 or less, intercept the pay tracking signature with WAIVED_FREE
+        const finalOrderId = (currentSessionPrice <= 0) ? 'WAIVED_FREE' : orderId;
+
         const payload = {
             session_id: selectedEvent.id,
             player_name: document.getElementById('playerName').value.trim(),
             parent_email: document.getElementById('parentEmail').value.trim(),
             parent_name: document.getElementById('parentName').value.trim(),
-            paypal_order_id: orderId
+            paypal_order_id: finalOrderId
         };
 
         fetch('/api/book', {
