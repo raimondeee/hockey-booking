@@ -27,7 +27,7 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 2. Master Consumer Bookings Table Configuration (with liability tracking stamps)
+    // 2. Master Consumer Bookings Table Configuration
     db.run(`CREATE TABLE IF NOT EXISTS bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
@@ -52,7 +52,7 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 4. NEW: Unified Security Blacklist Table Configuration
+    // 4. Unified Security Blacklist Table Configuration
     db.run(`CREATE TABLE IF NOT EXISTS banned_emails (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,

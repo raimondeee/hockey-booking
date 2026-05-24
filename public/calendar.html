@@ -21,7 +21,6 @@
         .header-left { display: flex; align-items: center; }
         .header-right { display: flex; align-items: center; justify-content: flex-end; }
         
-        /* Filter Button Bar Controls */
         .filter-controls { 
             width: 95%;
             max-width: 960px; 
@@ -40,7 +39,6 @@
         .filter-btn:hover { background: #f1f1f1; }
         .filter-btn.active { background: #0070ba; color: white; border-color: #0070ba; }
 
-        /* Unified Desktop Boundary Constrainer */
         #calendar { 
             width: 95%; 
             max-width: 960px; 
@@ -52,7 +50,6 @@
             box-sizing: border-box;
         }
 
-        /* Desktop Positioning Context for the lower metadata row */
         .calendar-footer-row {
             width: 95%;
             max-width: 960px;
@@ -62,7 +59,6 @@
             box-sizing: border-box;
         }
 
-        /* Responsive Modal Viewports */
         .modal { 
             display: none; 
             position: fixed; 
@@ -122,50 +118,15 @@
         
         #contactCoachLink { color: #666; padding: 5px 0; }
 
-        /* --- MOBILE LAYOUT OVERRIDES --- */
         @media (max-width: 600px) {
             body { padding-bottom: 120px; }
-            
-            .header-bar {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 12px;
-                margin-bottom: 20px;
-            }
-
+            .header-bar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 20px; }
             .header-left { width: 100%; display: block; text-align: left; }
             .header-right { width: 100%; justify-content: flex-end; margin-top: -46px; }
-
             #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
-
-            #contactCoachLink, #manageCouponsBtn {
-                position: fixed;
-                bottom: 16px;
-                left: 16px;
-                margin-left: 0;
-                background: rgba(248, 249, 250, 0.95); 
-                padding: 10px 16px;
-                border-radius: 20px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                border: 1px solid #ddd;
-                z-index: 998; 
-            }
-            
-            #manageCouponsBtn {
-                background: #343a40 !important;
-                color: #fff !important;
-                border-color: #212529 !important;
-            }
-
-            .admin-badge {
-                position: fixed;
-                bottom: 64px; 
-                left: 16px;
-                margin-right: 0;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                z-index: 998;
-            }
-
+            #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(248, 249, 250, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #ddd; z-index: 998; }
+            #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
+            .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
             .filter-controls { flex-wrap: wrap; padding: 10px; }
             .filter-label { width: 100%; margin-bottom: 4px; }
         }
@@ -268,6 +229,18 @@
 
         <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
         <div id="waitlistRosterList" style="margin-bottom: 25px;"></div>
+
+        <!-- Broadcast Email Manager Extension Area Layout -->
+        <div style="margin-top: 30px; background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 6px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #333; letter-spacing: 0.5px;">📢 Broadcast Update to Roster</h4>
+            <div class="input-group" style="margin-bottom: 8px;">
+                <input type="text" id="broadcastSubject" placeholder="Email Subject line Topic (e.g., Ice Time Delay)" style="padding: 6px; font-size: 13px;">
+            </div>
+            <div class="input-group" style="margin-bottom: 10px;">
+                <textarea id="broadcastMessage" placeholder="Type your notification message update here for families..." style="width: 100%; height: 70px; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical;"></textarea>
+            </div>
+            <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; width: auto; margin: 0;" onclick="submitRosterBroadcast()">Send Notification Email</button>
+        </div>
     </div>
 
     <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
@@ -316,7 +289,7 @@
     let paypalActionsInstance = null;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
-    let currentRosterData = null; // Caches the active roster locally for data generation loops
+    let currentRosterData = null;
 
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -461,6 +434,8 @@
         document.getElementById('waiverCheckbox').checked = false;
         document.getElementById('couponCodeInput').value = "";
         document.getElementById('couponFeedback').innerText = "";
+        document.getElementById('broadcastSubject').value = "";
+        document.getElementById('broadcastMessage').value = "";
         verifiedDiscountAmount = 0;
         currentSessionPrice = props.price;
 
@@ -619,7 +594,7 @@
         })
         .then(res => res.json())
         .then(data => {
-            currentRosterData = data; // Cache data internally
+            currentRosterData = data; 
             const csvBtn = document.getElementById('exportCsvBtn');
             if (csvBtn) {
                 csvBtn.style.display = (data.active.length > 0 || data.waitlist.length > 0) ? 'inline-block' : 'none';
@@ -698,6 +673,47 @@
         
         downloadLink.click();
         document.body.removeChild(downloadLink);
+    }
+
+    function submitRosterBroadcast() {
+        const subject = document.getElementById('broadcastSubject').value.trim();
+        const message = document.getElementById('broadcastMessage').value.trim();
+
+        if (!subject || !message) {
+            alert("Please complete both a subject and a notification message block before clicking send.");
+            return;
+        }
+
+        if (!confirm("Are you sure you want to blast this update email to every parent registered for this training slot immediately?")) return;
+
+        const sendBtn = event.target;
+        const originalBtnText = sendBtn.innerText;
+        sendBtn.innerText = "Sending emails...";
+        sendBtn.disabled = true;
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/broadcast`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, subject: subject, message: message })
+        })
+        .then(res => res.json())
+        .then(data => {
+            sendBtn.innerText = originalBtnText;
+            sendBtn.disabled = false;
+
+            if (data.success) {
+                alert(data.message);
+                document.getElementById('broadcastSubject').value = "";
+                document.getElementById('broadcastMessage').value = "";
+            } else {
+                alert(data.error || "An error occurred while compiling email transmissions.");
+            }
+        })
+        .catch(() => {
+            sendBtn.innerText = originalBtnText;
+            sendBtn.disabled = false;
+            alert("Network communication error with server broadcast gateways.");
+        });
     }
 
     function togglePasswordVisibility() {
