@@ -152,6 +152,29 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
+<!-- Admin Ledger Summary Panel Component Layout -->
+<div id="adminLedgerPanel" style="display: none; width: 95%; max-width: 960px; margin: 0 auto 20px; background: #343a40; color: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); box-sizing: border-box;">
+    <h3 style="margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; color: #ffc107; letter-spacing: 0.5px;">📊 Business Ledger Summary</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px;">
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #ffc107;">
+            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Gross Income</span>
+            <strong id="ledgerGrossRevenue" style="font-size: 20px; font-family: monospace;">$0.00</strong>
+        </div>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #0070ba;">
+            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Confirmed Skaters</span>
+            <strong id="ledgerTotalBookings" style="font-size: 20px;">0 Players</strong>
+        </div>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #28a745;">
+            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Published Slots</span>
+            <strong id="ledgerTotalSessions" style="font-size: 20px;">0 Sessions</strong>
+        </div>
+        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #dc3545;">
+            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Total Waitlisted</span>
+            <strong id="ledgerTotalWaitlisted" style="font-size: 20px;">0 Alternates</strong>
+        </div>
+    </div>
+</div>
+
 <div id="calendar"></div>
 
 <div class="calendar-footer-row">
@@ -495,6 +518,7 @@
         }).then(res => res.json()).then(data => {
             alert(data.status === 'active' ? 'Spot confirmed!' : 'Player placed on waitlist.');
             closeAllModals();
+            if (adminToken) loadAdministrativeLedgerSummary(); // Dynamically update financial ledger bounds if booking additions occur
             calendar.refetchEvents();
         });
     }
@@ -522,7 +546,11 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+        }).then(res => res.json()).then(() => { 
+            closeAllModals(); 
+            loadAdministrativeLedgerSummary();
+            calendar.refetchEvents(); 
+        });
     }
     
     function deleteCurrentSession() {
@@ -531,7 +559,11 @@
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: adminToken })
-        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+        }).then(res => res.json()).then(() => { 
+            closeAllModals(); 
+            loadAdministrativeLedgerSummary();
+            calendar.refetchEvents(); 
+        });
     }
 
     function openCouponModal() {
@@ -631,11 +663,19 @@
 
     function removePlayerFromRoster(bookingId) {
         if (!confirm("Remove player?")) return;
-        fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
+        fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { 
+            loadActiveRosterDashboard(selectedEvent.id); 
+            loadAdministrativeLedgerSummary();
+            calendar.refetchEvents(); 
+        });
     }
 
     function demotePlayerToWaitlist(bookingId) {
-        fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
+        fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { 
+            loadActiveRosterDashboard(selectedEvent.id); 
+            loadAdministrativeLedgerSummary();
+            calendar.refetchEvents(); 
+        });
     }
 
     function exportCurrentRosterToCsv() {
@@ -716,6 +756,26 @@
         });
     }
 
+    function loadAdministrativeLedgerSummary() {
+        if (!adminToken) return;
+
+        fetch('/api/admin/ledger/summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('ledgerGrossRevenue').innerText = `$${data.gross_earnings.toFixed(2)}`;
+                document.getElementById('ledgerTotalBookings').innerText = `${data.total_bookings} Skaters`;
+                document.getElementById('ledgerTotalSessions').innerText = `${data.total_sessions} Slots`;
+                document.getElementById('ledgerTotalWaitlisted').innerText = `${data.waitlist_count} Families`;
+            }
+        })
+        .catch(() => console.warn("Failed to securely pull accounting ledger matrix summaries."));
+    }
+
     function togglePasswordVisibility() {
         const passInput = document.getElementById('adminPass');
         const toggleIcon = document.getElementById('passwordToggleView');
@@ -732,6 +792,7 @@
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
             document.getElementById('contactCoachLink').style.display = 'inline-block'; 
             document.getElementById('filterBar').style.display = 'flex';
+            document.getElementById('adminLedgerPanel').style.display = 'none';
             alert("Logged out.");
             calendar.refetchEvents(); 
         } else {
@@ -756,6 +817,8 @@
                 document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
                 document.getElementById('contactCoachLink').style.display = 'none'; 
                 document.getElementById('filterBar').style.display = 'none';
+                document.getElementById('adminLedgerPanel').style.display = 'block';
+                loadAdministrativeLedgerSummary();
                 closeAllModals();
                 calendar.refetchEvents(); 
             } else { alert("Authorization failed."); }
