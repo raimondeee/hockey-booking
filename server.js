@@ -1,21 +1,33 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const jwt = require('jsonwebtoken'); // Secure cryptographic tokens
 const db = require('./database');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static('public')); // Serves your landing page and calendar frontend files
+app.use(express.static('public')); // Serves landing pages and calendar assets
 
-// Secure Admin Dashboard Access Credentials
-const ADMIN_USERNAME = "coach";
-const ADMIN_PASSWORD = "HockeyPassword2026!"; // Coach can change this later
+// Secure Production Profile Configurations
+const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
+const ADMIN_PASSWORD = process.env.ADMIN_PASS; 
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Helper function to fetch a secure authentication token from PayPal's OAuth API
+// Fail-Safe Boot Checks to shield Ben's server on the open internet
+if (!ADMIN_PASSWORD || !JWT_SECRET) {
+    console.error("\n[CRITICAL ERROR] Missing vital environment parameters (ADMIN_PASS or JWT_SECRET)!");
+    console.error("Please configure these fields immediately in your Render Environment tab Dashboard.\n");
+}
+
+// Helper function to fetch an authorization token from PayPal's Live production API
 async function getPayPalAccessToken() {
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
-    const response = await fetch('https://api-m.paypal.com/v1/oauth2/token', {
+    
+    // Dynamically toggle between testing sandbox and real live production servers
+    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+    
+    const response = await fetch(`${paypalHost}/v1/oauth2/token`, {
         method: 'POST',
         body: 'grant_type=client_credentials',
         headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -40,7 +52,7 @@ app.get('/api/sessions', (req, res) => {
     });
 });
 
-// 2. Public: Validate a coupon code and return its mathematical value to the calendar interface
+// 2. Public: Validate a coupon code and return its value to the frontend layout
 app.post('/api/validate-coupon', (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: "No code provided" });
@@ -53,29 +65,29 @@ app.post('/api/validate-coupon', (req, res) => {
     });
 });
 
-// 3. Public: Submit a registration (Enforces server-side PayPal authentication checks and saves legal waiver logs)
+// 3. Public: Submit a registration (Verifies transactions directly via PayPal API and locks legal waivers)
 app.post('/api/book', async (req, res) => {
     const { session_id, player_name, parent_email, parent_name, paypal_order_id } = req.body;
 
-    // Secure Verification: Confirm payment status directly via PayPal's API if an Order ID exists
     if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE') {
         try {
             const accessToken = await getPayPalAccessToken();
-            const verifyResponse = await fetch(`https://api-m.paypal.com/v2/checkout/orders/${paypal_order_id}`, {
+            const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+            
+            const verifyResponse = await fetch(`${paypalHost}/v2/checkout/orders/${paypal_order_id}`, {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
             });
             const orderDetails = await verifyResponse.json();
 
             if (orderDetails.status !== 'COMPLETED') {
-                return res.status(400).json({ error: "Payment verification failed. Roster spot not assigned." });
+                return res.status(400).json({ error: "Payment verification failed. Roster spot rejected." });
             }
         } catch (error) {
-            return res.status(500).json({ error: "Unable to process validation with payment network gateway." });
+            return res.status(500).json({ error: "Unable to complete security handshakes with payment gateway." });
         }
     }
 
-    // Capacity Verification Loop: Check current limits (25 active, 15 waitlist)
     const countQuery = `SELECT 
         (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
         (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'waitlist') as waitlist`;
@@ -91,8 +103,7 @@ app.post('/api/book', async (req, res) => {
             status = 'waitlist';
         }
 
-        // Establish waiver tracking criteria parameters
-        const waiverTimestamp = new Date().toISOString(); // Records precise signature timing
+        const waiverTimestamp = new Date().toISOString(); 
         const waiverAcceptedFlag = 1;
 
         const insertQuery = `
@@ -102,14 +113,8 @@ app.post('/api/book', async (req, res) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
         db.run(insertQuery, [
-            session_id, 
-            player_name, 
-            parent_name, 
-            parent_email, 
-            status, 
-            paypal_order_id || 'WAITLIST_FREE',
-            waiverAcceptedFlag,
-            waiverTimestamp
+            session_id, player_name, parent_name, parent_email, status, 
+            paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
         ], function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true, status: status, booking_id: this.lastID });
@@ -117,19 +122,40 @@ app.post('/api/book', async (req, res) => {
     });
 });
 
-// 4. Admin Portal: System Authentication endpoint
+// 4. Admin Portal: System Authentication endpoint (Issues secure dynamic tokens expiring in 2 hours)
 app.post('/api/admin/login', (req, res) => {
     const { username, password } = req.body;
+    
+    if (!ADMIN_PASSWORD) {
+        return res.status(500).json({ error: "Server authentication values are not configured on the dashboard host." });
+    }
+
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-        return res.json({ success: true, token: "session_token_mock_abc123" });
+        // Signs a secure cryptographic payload containing an administrative authorization claim
+        const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
+        return res.json({ success: true, token: token });
     }
     res.status(401).json({ error: "Invalid coach credentials." });
 });
 
-// 5. Admin Portal: Create an empty calendar slot (with classification & access controls)
-app.post('/api/admin/sessions', (req, res) => {
-    const { token, title, start_time, end_time, price, event_type, access_code } = req.body; 
-    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
+// --- ENFORCED MIDDLEWARE: Protects down-line Admin routes using cryptographic verification loops ---
+function verifyAdminToken(req, res, next) {
+    const token = req.body.token || (req.headers['authorization'] ? req.headers['authorization'].split(' ')[1] : null);
+    
+    if (!token) return res.status(403).json({ error: "Access denied. Auth token footprint is missing." });
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.adminContext = decoded;
+        next(); // Token checks passed perfectly. Proceed cleanly to route handling mechanics.
+    } catch (err) {
+        return res.status(401).json({ error: "Your portal login session has expired. Please refresh and log back in." });
+    }
+}
+
+// 5. Admin Portal: Create an empty calendar slot
+app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
+    const { title, start_time, end_time, price, event_type, access_code } = req.body; 
 
     const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code) VALUES (?, ?, ?, ?, ?, ?)`;
     db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null], function(err) {
@@ -138,11 +164,9 @@ app.post('/api/admin/sessions', (req, res) => {
     });
 });
 
-// 6. Admin Portal: Delete a session and clean up connected roster files
-app.delete('/api/admin/sessions/:id', (req, res) => {
-    const { token } = req.body;
+// 6. Admin Portal: Delete a session and purge connected registrations
+app.delete('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
-    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
 
     db.run(`DELETE FROM bookings WHERE session_id = ?`, [sessionId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -154,11 +178,8 @@ app.delete('/api/admin/sessions/:id', (req, res) => {
     });
 });
 
-// 7. Admin Portal: Fetch all coupons inside the generator vault
-app.post('/api/admin/coupons/list', (req, res) => {
-    const { token } = req.body;
-    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
-
+// 7. Admin Portal: Fetch coupons inside the generator vault
+app.post('/api/admin/coupons/list', verifyAdminToken, (req, res) => {
     db.all(`SELECT * FROM coupons ORDER BY id DESC`, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
@@ -166,10 +187,9 @@ app.post('/api/admin/coupons/list', (req, res) => {
 });
 
 // 8. Admin Portal: Generate a brand new functional coupon code record
-app.post('/api/admin/coupons/create', (req, res) => {
-    const { token, code, discount_type, discount_value } = req.body;
-    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
-    if (!code || !discount_value) return res.status(400).json({ error: "Missing required values" });
+app.post('/api/admin/coupons/create', verifyAdminToken, (req, res) => {
+    const { code, discount_type, discount_value } = req.body;
+    if (!code || !discount_value) return res.status(400).json({ error: "Missing required properties" });
 
     const cleanCode = code.toUpperCase().trim();
     const insertQuery = `INSERT INTO coupons (code, discount_type, discount_value, active) VALUES (?, ?, ?, 1)`;
@@ -186,10 +206,8 @@ app.post('/api/admin/coupons/create', (req, res) => {
 });
 
 // 9. Admin Portal: Terminate/Revoke an active coupon code by index key
-app.delete('/api/admin/coupons/:id', (req, res) => {
-    const { token } = req.body;
+app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
     const couponId = req.params.id;
-    if (token !== "session_token_mock_abc123") return res.status(403).json({ error: "Unauthorized" });
 
     db.run(`DELETE FROM coupons WHERE id = ?`, [couponId], function(err) {
         if (err) return res.status(500).json({ error: err.message });
@@ -199,4 +217,4 @@ app.delete('/api/admin/coupons/:id', (req, res) => {
 
 // Start the Application Engine
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server executing smoothly on network port ${PORT}`));
+app.listen(PORT, () => console.log(`Secure Server executing smoothly on network port ${PORT}`));
