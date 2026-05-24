@@ -93,7 +93,7 @@ app.post('/api/book', async (req, res) => {
         if (err) return res.status(500).json({ error: "Internal security handshake check fault." });
         if (banRecord) return res.status(403).json({ error: "Registration denied. Please contact Coach Ben directly for scheduling alternatives." });
 
-        if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE') {
+        if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE' && paypal_order_id !== 'WAIVED_FREE') {
             try {
                 const accessToken = await getPayPalAccessToken();
                 const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
