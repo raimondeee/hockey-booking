@@ -486,7 +486,8 @@ function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
                     from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
                     to: nextPlayer.parent_email,
                     subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                    text: `Hi ${nextPlayer.parent_name},\n\nA roster opening is available for ${nextPlayer.player_name} in our upcoming training session!\n\nTo lock down this spot, please visit the link below to complete your checkout and secure payment registration parameters:\n\n${claimUrl}\n\n⚠️ IMPORTANT: This link holds your slot for exactly 24 hours. If registration payment is not completed before then, this position will automatically expire and forfeit to the next alternate player in line.\n\nBest regards,\nCoach Ben Stadey`
+                    // FIX: Wrap the claimUrl inside < > brackets so email clients hyperlink the entire path
+                    text: `Hi ${nextPlayer.parent_name},\n\nA roster opening is available for ${nextPlayer.player_name} in our upcoming training session!\n\nTo lock down this spot, please visit the link below to complete your checkout and secure payment registration parameters:\n\n<${claimUrl}>\n\n⚠️ IMPORTANT: This link holds your slot for exactly 24 hours. If registration payment is not completed before then, this position will automatically expire and forfeit to the next alternate player in line.\n\nBest regards,\nCoach Ben Stadey`
                 };
 
                 transporter.sendMail(mailOptions, (mailErr) => {
