@@ -1,9 +1,9 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Determine path: uses Render persistent disk mount if present, otherwise safe local fallback
+// Explicitly define the absolute production path to bypass path utility evaluation bugs
 const dbPath = process.env.RENDER_DATA_DIR 
-    ? path.join('/opt/ben-hockey-data', 'hockey_booking.db')
+    ? '/opt/ben-hockey-data/hockey_booking.db'
     : path.join(__dirname, 'hockey_booking.db');
 
 const db = new sqlite3.Database(dbPath, (err) => {
