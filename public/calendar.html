@@ -260,7 +260,10 @@
 
     <!-- Coach View Dashboard Panel -->
     <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
-        <h4 id="activeRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #0070ba; border-bottom: 2px solid #0070ba; padding-bottom: 4px;">Active Roster</h4>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0070ba; padding-bottom: 4px; margin-bottom: 8px;">
+            <h4 id="activeRosterTitle" style="margin: 0; font-size: 14px; text-transform: uppercase; color: #0070ba;">Active Roster</h4>
+            <button id="exportCsvBtn" class="btn" style="background: #28a745; color: white; padding: 4px 10px; font-size: 11px; margin: 0; display: none;" onclick="exportCurrentRosterToCsv()">📥 Export to Excel/CSV</button>
+        </div>
         <div id="activeRosterList" style="margin-bottom: 20px;"></div>
 
         <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
@@ -313,6 +316,7 @@
     let paypalActionsInstance = null;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
+    let currentRosterData = null; // Caches the active roster locally for data generation loops
 
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -615,6 +619,12 @@
         })
         .then(res => res.json())
         .then(data => {
+            currentRosterData = data; // Cache data internally
+            const csvBtn = document.getElementById('exportCsvBtn');
+            if (csvBtn) {
+                csvBtn.style.display = (data.active.length > 0 || data.waitlist.length > 0) ? 'inline-block' : 'none';
+            }
+
             if (data.active.length === 0) { activeDiv.innerHTML = `<p style='font-style:italic; padding:8px;'>Roster empty.</p>`; } 
             else {
                 let html = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
@@ -653,7 +663,43 @@
         fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
-    /* UPDATED: Fixed single naming footprint */
+    function exportCurrentRosterToCsv() {
+        if (!currentRosterData || (!currentRosterData.active.length && !currentRosterData.waitlist.length)) {
+            alert("No rosters available to export.");
+            return;
+        }
+
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Position,Status,Player Name,Parent Name,Parent Email\n";
+
+        currentRosterData.active.forEach((p, idx) => {
+            const player = `"${p.player_name.replace(/"/g, '""')}"`;
+            const parent = `"${p.parent_name.replace(/"/g, '""')}"`;
+            const email = `"${p.parent_email.replace(/"/g, '""')}"`;
+            csvContent += `${idx + 1},Active,${player},${parent},${email}\n`;
+        });
+
+        currentRosterData.waitlist.forEach((p, idx) => {
+            const player = `"${p.player_name.replace(/"/g, '""')}"`;
+            const parent = `"${p.parent_name.replace(/"/g, '""')}"`;
+            const email = `"${p.parent_email.replace(/"/g, '""')}"`;
+            csvContent += `W${idx + 1},Waitlist,${player},${parent},${email}\n`;
+        });
+
+        const rawTitle = selectedEvent ? selectedEvent.title.split('(')[0].trim() : "Hockey_Roster";
+        const cleanTitle = rawTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const fileName = `${cleanTitle}_roster.csv`;
+
+        const encodedUri = encodeURI(csvContent);
+        const downloadLink = document.createElement("a");
+        downloadLink.setAttribute("href", encodedUri);
+        downloadLink.setAttribute("download", fileName);
+        document.body.appendChild(downloadLink);
+        
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    }
+
     function togglePasswordVisibility() {
         const passInput = document.getElementById('adminPass');
         const toggleIcon = document.getElementById('passwordToggleView');
