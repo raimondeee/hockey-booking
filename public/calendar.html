@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -55,7 +55,8 @@
             max-width: 960px;
             margin: 0 auto 40px;
             display: flex;
-            justify-content: flex-start;
+            justify-content: space-between;
+            align-items: center;
             box-sizing: border-box;
         }
 
@@ -108,7 +109,7 @@
         #paypal-button-wrapper { position: relative; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
 
-        #contactCoachLink, #manageCouponsBtn {
+        #contactCoachLink, #manageCouponsBtn, #linkOpsDashboard {
             font-size: 14px; 
             font-weight: bold; 
             font-family: sans-serif;
@@ -152,33 +153,12 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
-<!-- Admin Ledger Summary Panel Component Layout -->
-<div id="adminLedgerPanel" style="display: none; width: 95%; max-width: 960px; margin: 0 auto 20px; background: #343a40; color: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); box-sizing: border-box;">
-    <h3 style="margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; color: #ffc107; letter-spacing: 0.5px;">📊 Business Ledger Summary</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px;">
-        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #ffc107;">
-            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Gross Income</span>
-            <strong id="ledgerGrossRevenue" style="font-size: 20px; font-family: monospace;">$0.00</strong>
-        </div>
-        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #0070ba;">
-            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Confirmed Skaters</span>
-            <strong id="ledgerTotalBookings" style="font-size: 20px;">0 Players</strong>
-        </div>
-        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #28a745;">
-            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Published Slots</span>
-            <strong id="ledgerTotalSessions" style="font-size: 20px;">0 Sessions</strong>
-        </div>
-        <div style="background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px; border-left: 4px solid #dc3545;">
-            <span style="font-size: 11px; text-transform: uppercase; color: #aaa; display: block; margin-bottom: 2px;">Total Waitlisted</span>
-            <strong id="ledgerTotalWaitlisted" style="font-size: 20px;">0 Alternates</strong>
-        </div>
-    </div>
-</div>
-
 <div id="calendar"></div>
 
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
+    <!-- Dedicated Private Redirect Path Hook -->
+    <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 View Operations Dashboard →</a>
 </div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
@@ -262,7 +242,9 @@
             <div class="input-group" style="margin-bottom: 10px;">
                 <textarea id="broadcastMessage" placeholder="Type your notification message update here for families..." style="width: 100%; height: 70px; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical;"></textarea>
             </div>
-            <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; width: auto; margin: 0;" onclick="submitRosterBroadcast()">Send Notification Email</button>
+            <div style="display: flex; justify-content: space-between;">
+                <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; width: auto; margin: 0;" onclick="submitRosterBroadcast()">Send Notification Email</button>
+            </div>
         </div>
     </div>
 
@@ -308,7 +290,7 @@
 <script>
     let calendar;
     let selectedEvent = null;
-    let adminToken = null;
+    let adminToken = localStorage.getItem('coach_admin_token'); // Persistent token initialization
     let paypalActionsInstance = null;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
@@ -318,6 +300,9 @@
         const urlParams = new URLSearchParams(window.location.search);
         const initialType = urlParams.get('type') || 'all';
         updateFilterButtonUI(initialType);
+        
+        // Safety verification: If a token exists locally, enforce active status views
+        if (adminToken) { applyCoachUIMode(true); }
 
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
@@ -518,7 +503,6 @@
         }).then(res => res.json()).then(data => {
             alert(data.status === 'active' ? 'Spot confirmed!' : 'Player placed on waitlist.');
             closeAllModals();
-            if (adminToken) loadAdministrativeLedgerSummary(); // Dynamically update financial ledger bounds if booking additions occur
             calendar.refetchEvents();
         });
     }
@@ -546,11 +530,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(res => res.json()).then(() => { 
-            closeAllModals(); 
-            loadAdministrativeLedgerSummary();
-            calendar.refetchEvents(); 
-        });
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
     }
     
     function deleteCurrentSession() {
@@ -559,11 +539,7 @@
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: adminToken })
-        }).then(res => res.json()).then(() => { 
-            closeAllModals(); 
-            loadAdministrativeLedgerSummary();
-            calendar.refetchEvents(); 
-        });
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
     }
 
     function openCouponModal() {
@@ -663,19 +639,11 @@
 
     function removePlayerFromRoster(bookingId) {
         if (!confirm("Remove player?")) return;
-        fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { 
-            loadActiveRosterDashboard(selectedEvent.id); 
-            loadAdministrativeLedgerSummary();
-            calendar.refetchEvents(); 
-        });
+        fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
     function demotePlayerToWaitlist(bookingId) {
-        fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { 
-            loadActiveRosterDashboard(selectedEvent.id); 
-            loadAdministrativeLedgerSummary();
-            calendar.refetchEvents(); 
-        });
+        fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
     function exportCurrentRosterToCsv() {
@@ -720,15 +688,15 @@
         const message = document.getElementById('broadcastMessage').value.trim();
 
         if (!subject || !message) {
-            alert("Please complete both a subject and a notification message block before clicking send.");
+            alert("Please complete both fields before sending.");
             return;
         }
 
-        if (!confirm("Are you sure you want to blast this update email to every parent registered for this training slot immediately?")) return;
+        if (!confirm("Broadcast this email update to the full roster immediately?")) return;
 
         const sendBtn = event.target;
         const originalBtnText = sendBtn.innerText;
-        sendBtn.innerText = "Sending emails...";
+        sendBtn.innerText = "Sending...";
         sendBtn.disabled = true;
 
         fetch(`/api/admin/sessions/${selectedEvent.id}/broadcast`, {
@@ -745,35 +713,33 @@
                 alert(data.message);
                 document.getElementById('broadcastSubject').value = "";
                 document.getElementById('broadcastMessage').value = "";
-            } else {
-                alert(data.error || "An error occurred while compiling email transmissions.");
-            }
+            } else { alert(data.error || "Broadcast error."); }
         })
         .catch(() => {
             sendBtn.innerText = originalBtnText;
             sendBtn.disabled = false;
-            alert("Network communication error with server broadcast gateways.");
+            alert("Network link error.");
         });
     }
 
-    function loadAdministrativeLedgerSummary() {
-        if (!adminToken) return;
-
-        fetch('/api/admin/ledger/summary', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: adminToken })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('ledgerGrossRevenue').innerText = `$${data.gross_earnings.toFixed(2)}`;
-                document.getElementById('ledgerTotalBookings').innerText = `${data.total_bookings} Skaters`;
-                document.getElementById('ledgerTotalSessions').innerText = `${data.total_sessions} Slots`;
-                document.getElementById('ledgerTotalWaitlisted').innerText = `${data.waitlist_count} Families`;
-            }
-        })
-        .catch(() => console.warn("Failed to securely pull accounting ledger matrix summaries."));
+    function applyCoachUIMode(isActive) {
+        if (isActive) {
+            document.body.style.backgroundColor = '#fef9e7'; 
+            document.getElementById('adminBadge').style.display = 'inline-block';
+            document.getElementById('authBtn').innerText = "Logout";
+            document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
+            document.getElementById('contactCoachLink').style.display = 'none'; 
+            document.getElementById('filterBar').style.display = 'none';
+            document.getElementById('linkOpsDashboard').style.display = 'inline-block'; // Open dashboard access
+        } else {
+            document.body.style.backgroundColor = '#f8f9fa'; 
+            document.getElementById('adminBadge').style.display = 'none';
+            document.getElementById('authBtn').innerText = "Coach Portal";
+            document.getElementById('manageCouponsBtn').style.display = 'none'; 
+            document.getElementById('contactCoachLink').style.display = 'inline-block'; 
+            document.getElementById('filterBar').style.display = 'flex';
+            document.getElementById('linkOpsDashboard').style.display = 'none'; // Lock dashboard access
+        }
     }
 
     function togglePasswordVisibility() {
@@ -786,13 +752,8 @@
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
-            document.body.style.backgroundColor = '#f8f9fa'; 
-            document.getElementById('adminBadge').style.display = 'none';
-            document.getElementById('authBtn').innerText = "Coach Portal";
-            document.getElementById('manageCouponsBtn').style.display = 'none'; 
-            document.getElementById('contactCoachLink').style.display = 'inline-block'; 
-            document.getElementById('filterBar').style.display = 'flex';
-            document.getElementById('adminLedgerPanel').style.display = 'none';
+            localStorage.removeItem('coach_admin_token'); // Purge token footprint cleanly
+            applyCoachUIMode(false);
             alert("Logged out.");
             calendar.refetchEvents(); 
         } else {
@@ -811,14 +772,8 @@
         .then(data => {
             if(data.success) {
                 adminToken = data.token;
-                document.body.style.backgroundColor = '#fef9e7'; 
-                document.getElementById('adminBadge').style.display = 'inline-block';
-                document.getElementById('authBtn').innerText = "Logout";
-                document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
-                document.getElementById('contactCoachLink').style.display = 'none'; 
-                document.getElementById('filterBar').style.display = 'none';
-                document.getElementById('adminLedgerPanel').style.display = 'block';
-                loadAdministrativeLedgerSummary();
+                localStorage.setItem('coach_admin_token', data.token); // Securely bind session tokens locally
+                applyCoachUIMode(true);
                 closeAllModals();
                 calendar.refetchEvents(); 
             } else { alert("Authorization failed."); }

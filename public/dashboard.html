@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ben Stadey Hockey Training | Operations Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; background: #1e222b; color: #f8f9fa; padding-bottom: 60px; }
+        .nav-bar { background: #14171c; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2c313c; }
+        .nav-title { margin: 0; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; color: #ffc107; }
+        .btn-back { background: #343a40; color: white; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 13px; font-weight: bold; border: 1px solid #4b5263; transition: background 0.2s; }
+        .btn-back:hover { background: #4b5263; }
+        
+        .main-container { max-width: 1100px; margin: 30px auto; padding: 0 20px; box-sizing: border-box; display: none; }
+        .auth-gate-panel { max-width: 400px; margin: 100px auto; background: #14171c; padding: 30px; border-radius: 8px; border: 1px solid #2c313c; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        
+        .ledger-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .ledger-card { background: #14171c; padding: 20px; border-radius: 8px; border-left: 5px solid #666; border-top: 1px solid #2c313c; border-right: 1px solid #2c313c; border-bottom: 1px solid #2c313c; }
+        .card-income { border-left-color: #28a745; }
+        .card-skaters { border-left-color: #0070ba; }
+        .card-utilization { border-left-color: #ffc107; }
+        .card-demand { border-left-color: #dc3545; }
+        .card-label { font-size: 11px; text-transform: uppercase; color: #a0aec0; display: block; margin-bottom: 5px; font-weight: bold; letter-spacing: 0.5px; }
+        .card-value { font-size: 24px; font-family: monospace; font-weight: bold; }
+
+        .dashboard-row { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+        @media (max-width: 850px) { .dashboard-row { grid-template-columns: 1fr; } }
+        
+        .panel-box { background: #14171c; border: 1px solid #2c313c; border-radius: 8px; padding: 20px; box-sizing: border-box; }
+        .panel-header { margin: 0 0 15px 0; font-size: 13px; text-transform: uppercase; color: #ffc107; letter-spacing: 0.5px; border-bottom: 1px solid #2c313c; padding-bottom: 8px; }
+        
+        .input-group { margin-bottom: 12px; text-align: left; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 12px; color: #a0aec0; text-transform: uppercase; }
+        .input-group input { width: 100%; padding: 10px; background: #242933; border: 1px solid #3b4252; border-radius: 4px; color: white; box-sizing: border-box; }
+        .btn-action { background: #0070ba; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; width: 100%; transition: background 0.2s; }
+        .btn-action:hover { background: #005fa3; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+        th { background: #242933; padding: 10px; text-align: left; font-weight: bold; color: #a0aec0; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #2c313c; }
+        td { padding: 10px; border-bottom: 1px solid #2c313c; }
+        tr:hover { background: rgba(255,255,255,0.02); }
+        .btn-danger-mini { background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold; }
+        .btn-danger-mini:hover { background: #bd2130; }
+    </style>
+</head>
+<body>
+
+<div class="nav-bar">
+    <h2 class="nav-title">Coach Operations Control Center</h2>
+    <a href="/calendar.html" class="btn-back">← Back to Live Calendar</a>
+</div>
+
+<!-- Authentication Check Gate View -->
+<div id="authGate" class="auth-gate-panel">
+    <h3 style="margin: 0 0 15px 0; color: #ffc107;">🔒 Security Gate Required</h3>
+    <p style="font-size: 13px; color: #a0aec0; margin-bottom: 20px;">Please authenticate through the primary schedule portal to read structural analytics metrics tokens.</p>
+    <a href="/calendar.html" class="btn-back" style="display: block; text-align: center;">Go to Calendar Login Portal</a>
+</div>
+
+<!-- Main System Analytics Dashboard Container Grid -->
+<div id="dashboardContainer" class="main-container">
+    
+    <!-- Row 1: The Master Ledger Metric Blocks -->
+    <div class="ledger-grid">
+        <div class="ledger-card card-income">
+            <span class="card-label">Gross Income Matrix</span>
+            <div id="metricGrossEarnings" class="card-value" style="color: #28a745;">$0.00</div>
+        </div>
+        <div class="ledger-card card-skaters">
+            <span class="card-label">Confirmed Roster Skaters</span>
+            <div id="metricActiveSkaters" class="card-value">0 Players</div>
+        </div>
+        <div class="ledger-card card-utilization">
+            <span class="card-label">Capacity Utilization Rate</span>
+            <div id="metricUtilization" class="card-value" style="color: #ffc107;">0.0%</div>
+        </div>
+        <div class="ledger-card card-demand">
+            <span class="card-label">Unmet Waitlist Demand</span>
+            <div id="metricWaitlist" class="card-value" style="color: #dc3545;">0 Alternates</div>
+        </div>
+    </div>
+
+    <!-- Row 2: Promo Audits & Security Controls Split Row Panel -->
+    <div class="dashboard-row">
+        
+        <!-- Promo Code Auditor Panel Component -->
+        <div class="panel-box">
+            <h3 class="panel-header">🎟️ Promo Code Performance Auditor</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+                <table id="couponMetricsTable">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Type Mapping</th>
+                            <th>Value</th>
+                            <th>Usage Count</th>
+                            <th>Revenue Subtracted</th>
+                        </tr>
+                    </thead>
+                    <tbody id="couponMetricsBody">
+                        <!-- Live iterations map dynamically here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Global Security Blacklist Manager Control Panel Box -->
+        <div class="panel-box">
+            <h3 class="panel-header">🛡️ Master Security Blacklist Guard</h3>
+            
+            <!-- Quick Add Mini-Form Layout Interface Hook -->
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: flex-end;">
+                <div style="flex: 4;" class="input-group">
+                    <label>Target Email Pattern to Block</label>
+                    <input type="email" id="blacklistEmailInput" placeholder="parent.badactor@example.com" style="padding: 7px; font-size:13px;">
+                </div>
+                <button class="btn-action" style="flex: 1.5; height: 37px; padding: 0; margin-bottom: 12px;" onclick="submitBlacklistAddition()">Ban Email</button>
+            </div>
+
+            <div style="max-height: 220px; overflow-y: auto; border: 1px solid #2c313c; border-radius: 4px;">
+                <table id="blacklistTable">
+                    <thead>
+                        <tr>
+                            <th>Banned Email Address</th>
+                            <th style="text-align: center; width: 80px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blacklistBody">
+                        <!-- Live blocked rows track here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    let adminToken = localStorage.getItem('coach_admin_token');
+
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!adminToken) {
+            document.getElementById('authGate').style.display = 'block';
+            document.getElementById('dashboardContainer').style.display = 'none';
+        } else {
+            document.getElementById('authGate').style.display = 'none';
+            document.getElementById('dashboardContainer').style.display = 'block';
+            
+            // Execute parallel ledger reporting calls
+            loadMasterOperationalLedgerSummary();
+            loadPromoPerformanceAudits();
+            loadSecurityBlacklistRoutines();
+        }
+    });
+
+    function loadMasterOperationalLedgerSummary() {
+        fetch('/api/admin/ledger/summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('metricGrossEarnings').innerText = `$${data.gross_earnings.toFixed(2)}`;
+                document.getElementById('metricActiveSkaters').innerText = `${data.total_bookings} Skaters`;
+                document.getElementById('metricUtilization').innerText = `${data.utilization_rate.toFixed(1)}%`;
+                document.getElementById('metricWaitlist').innerText = `${data.waitlist_count} Alternates`;
+            } else {
+                handleExpiredSessionRedirect();
+            }
+        }).catch(() => console.error("Handshake fail with analytical dashboard services."));
+    }
+
+    function loadPromoPerformanceAudits() {
+        fetch('/api/admin/ledger/coupons-audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('couponMetricsBody');
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#777; font-style:italic; padding:15px;">No codes have been initialized or used yet.</td></tr>`;
+                return;
+            }
+            let html = '';
+            data.forEach(c => {
+                const sym = c.discount_type === 'fixed' ? '$' : '%';
+                html += `<tr>
+                    <td style="font-weight:bold; color:#ffc107;">${c.code}</td>
+                    <td style="text-transform:capitalize;">${c.discount_type}</td>
+                    <td>${c.discount_value}${sym}</td>
+                    <td><b>${c.usage_count}</b> split uses</td>
+                    <td style="color:#28a745; font-weight:bold; font-family:monospace;">$${c.total_revenue_subtracted.toFixed(2)}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        });
+    }
+
+    function loadSecurityBlacklistRoutines() {
+        fetch('/api/admin/blacklist/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('blacklistBody');
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:#777; font-style:italic; padding:15px;">Blacklist is completely clean. No users restricted.</td></tr>`;
+                return;
+            }
+            let html = '';
+            data.forEach(row => {
+                html += `<tr>
+                    <td style="font-family:monospace; color:#e0e0e0;">${row.email}</td>
+                    <td style="text-align:center;">
+                        <button class="btn-danger-mini" onclick="submitBlacklistRemoval('${row.email}')">Lift Ban</button>
+                    </td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        });
+    }
+
+    function submitBlacklistAddition() {
+        const emailInput = document.getElementById('blacklistEmailInput');
+        const email = emailInput.value.trim();
+        if (!email) return;
+
+        fetch('/api/admin/blacklist/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, email: email })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                emailInput.value = '';
+                loadSecurityBlacklistRoutines();
+                loadMasterOperationalLedgerSummary(); // Sync alternate capacity drops if real-time alterations apply
+            } else { alert(data.error || "Execution error targeting ban parameters."); }
+        });
+    }
+
+    function submitBlacklistRemoval(email) {
+        if (!confirm(`Are you sure you want to lift the scheduling restriction from ${email}?`)) return;
+
+        fetch('/api/admin/blacklist/remove', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, email: email })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) { loadSecurityBlacklistRoutines(); }
+        });
+    }
+
+    function handleExpiredSessionRedirect() {
+        localStorage.removeItem('coach_admin_token');
+        alert("Your authentication session context has expired. Please log back in on the main calendar view panel.");
+        window.location.href = '/calendar.html';
+    }
+</script>
+</body>
+</html>

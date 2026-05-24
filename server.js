@@ -1,14 +1,14 @@
-const express = require('express');
+\const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const jwt = require('jsonwebtoken'); // Secure cryptographic tokens
-const nodemailer = require('nodemailer'); // Secure global broadcast communications engine
+const jwt = require('jsonwebtoken'); 
+const nodemailer = require('nodemailer'); 
 const db = require('./database');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static('public')); // Serves landing pages and calendar assets
+app.use(express.static('public')); 
 
 // Secure Production Profile Configurations
 const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
@@ -262,7 +262,15 @@ app.delete('/api/admin/blacklist/remove', verifyAdminToken, (req, res) => {
     });
 });
 
-// 15. ADMIN ONLY: Send a global broadcast email to everyone registered for a specific session slot
+// 14b. Admin Portal: Fetch the full structural blacklist mapping array
+app.post('/api/admin/blacklist/list', verifyAdminToken, (req, res) => {
+    db.all(`SELECT email, created_at FROM banned_emails ORDER BY created_at DESC`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// 15. Admin Portal: Send a global broadcast email to everyone registered for a specific session slot
 app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
     const { subject, message } = req.body;
@@ -293,34 +301,75 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
     });
 });
 
-// 16. ADMIN ONLY: Fetch Account Ledger financial overview statistics
+// 16. Admin Portal: Fetch Account Ledger financial overview statistics & utilization metrics
 app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
-    const query = `
+    const financeQuery = `
         SELECT 
             COUNT(b.id) as total_registrations,
             SUM(s.price) as gross_revenue,
-            (SELECT COUNT(*) FROM sessions) as total_events,
             (SELECT COUNT(*) FROM bookings WHERE status = 'waitlist') as total_waitlisted
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.status = 'active'`;
 
-    db.get(query, [], (err, row) => {
+    db.get(financeQuery, [], (err, financeRow) => {
         if (err) return res.status(500).json({ error: err.message });
-        
-        // Return structured calculations, safely defaulting null math states to zero
-        res.json({
-            success: true,
-            total_bookings: row.total_registrations || 0,
-            gross_earnings: row.gross_revenue || 0,
-            total_sessions: row.total_events || 0,
-            waitlist_count: row.total_waitlisted || 0
+
+        // Calculate Capacity Utilization Rate percentages cleanly across active sessions
+        db.all(`SELECT id, event_type FROM sessions`, [], (err, sessions) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            let maxPossibleCapacity = 0;
+            sessions.forEach(s => { maxPossibleCapacity += (s.event_type === 'small' ? 6 : 25); });
+
+            const totalActiveBookings = financeRow.total_registrations || 0;
+            const utilizationRate = maxPossibleCapacity > 0 ? (totalActiveBookings / maxPossibleCapacity) * 100 : 0;
+
+            res.json({
+                success: true,
+                total_bookings: totalActiveBookings,
+                gross_earnings: financeRow.gross_revenue || 0,
+                waitlist_count: financeRow.total_waitlisted || 0,
+                utilization_rate: utilizationRate
+            });
         });
     });
 });
 
+// 17. Admin Portal: Audit specific promo code coupon redemption revenue metrics
+app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
+    // Queries each voucher along with tracking historical transaction records
+    const query = `
+        SELECT 
+            c.code, c.discount_type, c.discount_value,
+            COUNT(b.id) as usage_count,
+            SUM(
+                CASE 
+                    WHEN c.discount_type = 'fixed' THEN c.discount_value
+                    WHEN c.discount_type = 'percent' THEN (s.price * (c.discount_value / 100))
+                    ELSE 0 
+                END
+            ) as total_revenue_subtracted
+        FROM coupons c
+        LEFT JOIN bookings b ON b.paypal_order_id IS NOT NULL AND b.paypal_order_id != 'WAITLIST_FREE'
+        LEFT JOIN sessions s ON b.session_id = s.id
+        GROUP BY c.id ORDER BY usage_count DESC`;
+
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows.map(r => ({
+            code: r.code,
+            discount_type: r.discount_type,
+            discount_value: r.discount_value,
+            usage_count: r.usage_count || 0,
+            total_revenue_subtracted: r.total_revenue_subtracted || 0
+        })));
+    });
+});
+
 function promoteNextWaitlistPlayer(sessionId, res) {
-    db.get(`SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`, [sessionId], (err, nextUp) => {
+    db.get suicide = `SELECT id FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY created_at ASC LIMIT 1`;
+    db.get(suicide, [sessionId], (err, nextUp) => {
         if (err) return res.status(500).json({ error: err.message });
         if (nextUp) {
             db.run(`UPDATE bookings SET status = 'active' WHERE id = ?`, [nextUp.id], (updateErr) => {
