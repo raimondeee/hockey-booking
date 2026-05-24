@@ -241,10 +241,16 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
 
 // 5b. Admin Portal: Override capacity settings on an individual session block level
 app.post('/api/admin/sessions/:id/capacity', verifyAdminToken, (req, res) => {
+    const sessionId = req.params.id;
     const capacityVal = req.body.custom_capacity ? parseInt(req.body.custom_capacity) : null;
-    db.run(`UPDATE sessions SET custom_capacity = ? WHERE id = ?`, [capacityVal, req.params.id], function(err) {
+    
+    db.run(`UPDATE sessions SET custom_capacity = ? WHERE id = ?`, [capacityVal, sessionId], function(err) {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true });
+        
+        // Immediately run the promotion engine logic to sweep queues for newfound openings!
+        promoteNextWaitlistPlayer(sessionId);
+        
+        res.json({ success: true, message: "Capacity updated and waitlist queue checked dynamically." });
     });
 });
 
@@ -487,7 +493,7 @@ function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
                     if (mailErr) console.error("[ERROR] Failed sending waitlist notification email invite:", mailErr.message);
                     
                     if (optionalResContext) {
-                        resContext.json({ success: true, message: "Roster vacancy updated. Checkout invite broadcasted to next waitlisted contact." });
+                        optionalResContext.json({ success: true, message: "Roster vacancy updated. Checkout invite broadcasted to next waitlisted contact." });
                     }
                 });
             });
