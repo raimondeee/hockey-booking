@@ -48,6 +48,8 @@
             border-radius: 8px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
             box-sizing: border-box;
+            /* Prevents calendar rows from being tightly cropped on mobile screens */
+            min-height: 500px;
         }
 
         .calendar-footer-row {
@@ -311,7 +313,7 @@
 <script>
     let calendar;
     let selectedEvent = null;
-    let adminToken = localStorage.getItem('coach_admin_token'); // Persistent token initialization
+    let adminToken = localStorage.getItem('coach_admin_token'); 
     let paypalActionsInstance = null;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
@@ -322,7 +324,6 @@
         const initialType = urlParams.get('type') || 'all';
         updateFilterButtonUI(initialType);
         
-        // Safety verification: If a token exists locally, enforce active status views
         if (adminToken) { applyCoachUIMode(true); }
 
         const calendarEl = document.getElementById('calendar');
@@ -331,6 +332,14 @@
             selectable: true,
             longPressDelay: 350,       
             selectLongPressDelay: 350, 
+            
+            // Dynamic display ratio mapping logic to expand mobile grid rows
+            aspectRatio: window.innerWidth < 600 ? 0.8 : 1.35,
+            handleWindowResize: true,
+            windowResize: function(view) {
+                calendar.setOption('aspectRatio', window.innerWidth < 600 ? 0.8 : 1.35);
+            },
+
             validRange: function(nowDate) {
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
@@ -348,7 +357,6 @@
 
                         const events = filteredData.map(session => {
                             const isSmallGroup = session.event_type === 'small';
-                            // Dynamic logic: use custom override if present, else fallback to standard defaults
                             const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 6 : 25);
                             const targetWaitlistCap = isSmallGroup ? 3 : 15;
                             const isFull = session.active_count >= targetCap;
@@ -716,7 +724,6 @@
         const targetIndex = currentIndex + directionalShift;
         if (targetIndex < 0 || targetIndex >= currentRosterData.waitlist.length) return;
 
-        // Swapping matching record parameters in the memory array footprint
         const temp = currentRosterData.waitlist[currentIndex];
         currentRosterData.waitlist[currentIndex] = currentRosterData.waitlist[targetIndex];
         currentRosterData.waitlist[targetIndex] = temp;
@@ -829,7 +836,7 @@
             document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
             document.getElementById('contactCoachLink').style.display = 'none'; 
             document.getElementById('filterBar').style.display = 'none';
-            document.getElementById('linkOpsDashboard').style.display = 'inline-block'; // Open dashboard access
+            document.getElementById('linkOpsDashboard').style.display = 'inline-block'; 
         } else {
             document.body.style.backgroundColor = '#f8f9fa'; 
             document.getElementById('adminBadge').style.display = 'none';
@@ -837,7 +844,7 @@
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
             document.getElementById('contactCoachLink').style.display = 'inline-block'; 
             document.getElementById('filterBar').style.display = 'flex';
-            document.getElementById('linkOpsDashboard').style.display = 'none'; // Lock dashboard access
+            document.getElementById('linkOpsDashboard').style.display = 'none'; 
         }
     }
 
@@ -851,7 +858,7 @@
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
-            localStorage.removeItem('coach_admin_token'); // Purge token footprint cleanly
+            localStorage.removeItem('coach_admin_token'); 
             applyCoachUIMode(false);
             alert("Logged out.");
             calendar.refetchEvents(); 
@@ -871,7 +878,7 @@
         .then(data => {
             if(data.success) {
                 adminToken = data.token;
-                localStorage.setItem('coach_admin_token', data.token); // Securely bind session tokens locally
+                localStorage.setItem('coach_admin_token', data.token); 
                 applyCoachUIMode(true);
                 closeAllModals();
                 calendar.refetchEvents(); 
