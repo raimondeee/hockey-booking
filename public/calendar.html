@@ -642,8 +642,8 @@
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
-            document.getElementById('deleteSessionBtn').style.none;
-            document.getElementById('coachRosterPanel').style.none;
+            document.getElementById('deleteSessionBtn').style.display = 'none';
+            document.getElementById('coachRosterPanel').style.display = 'none';
             
             if (props.access_code && props.access_code !== "") {
                 document.getElementById('accessCodeWrapper').style.display = 'block';
