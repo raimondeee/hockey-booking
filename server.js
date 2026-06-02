@@ -84,6 +84,146 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
+function getPayPalHost() {
+    return process.env.PAYPAL_MODE === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+}
+
+function isRefundablePayPalOrder(paypalOrderId) {
+    if (!paypalOrderId) return false;
+    if (paypalOrderId === 'WAITLIST_FREE' || paypalOrderId === 'WAIVED_FREE') return false;
+    if (paypalOrderId.startsWith('REFUNDED:')) return false;
+    return true;
+}
+
+function resolvePayPalOrderId(paypalOrderId) {
+    if (paypalOrderId && paypalOrderId.startsWith('REFUNDED:')) {
+        return paypalOrderId.slice('REFUNDED:'.length);
+    }
+    return paypalOrderId;
+}
+
+/** Issues a PayPal capture refund and updates the booking row. Returns { success, ... } or throws with { status, error }. */
+async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
+    const { promoteWaitlist = false } = options;
+
+    if (!refundAmount || isNaN(parseFloat(refundAmount)) || parseFloat(refundAmount) <= 0) {
+        const err = new Error('A valid refund amount is required.');
+        err.status = 400;
+        throw err;
+    }
+
+    const booking = await new Promise((resolve, reject) => {
+        db.get(
+            `SELECT b.id, b.session_id, b.paypal_order_id, b.status, b.player_name, s.price as session_price
+             FROM bookings b
+             JOIN sessions s ON b.session_id = s.id
+             WHERE b.id = ?`,
+            [bookingId],
+            (dbErr, row) => (dbErr ? reject(dbErr) : resolve(row))
+        );
+    });
+
+    if (!booking) {
+        const err = new Error('Booking record not found.');
+        err.status = 404;
+        throw err;
+    }
+
+    if (!isRefundablePayPalOrder(booking.paypal_order_id)) {
+        const err = new Error('No PayPal payment on record for this booking — nothing to refund.');
+        err.status = 400;
+        throw err;
+    }
+
+    if (booking.status === 'refunded') {
+        const err = new Error('This booking has already been refunded.');
+        err.status = 400;
+        throw err;
+    }
+
+    const refundValue = parseFloat(refundAmount).toFixed(2);
+    const paypalOrderId = resolvePayPalOrderId(booking.paypal_order_id);
+    const accessToken = await getPayPalAccessToken();
+    const paypalHost = getPayPalHost();
+
+    const orderRes = await fetch(`${paypalHost}/v2/checkout/orders/${paypalOrderId}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+    });
+    const orderData = await orderRes.json();
+
+    const captureId = orderData?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+    if (!captureId) {
+        const err = new Error('Could not locate a completed PayPal capture to refund. The order may not have been fully captured.');
+        err.status = 400;
+        throw err;
+    }
+
+    const refundRes = await fetch(`${paypalHost}/v2/payments/captures/${captureId}/refund`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            amount: { value: refundValue, currency_code: 'USD' },
+            note_to_payer: `Refund issued by Coach Ben for ${booking.player_name}'s hockey training session.`
+        })
+    });
+    const refundData = await refundRes.json();
+
+    if (!refundRes.ok || refundData.status === 'FAILED') {
+        console.error('[REFUND ERROR] PayPal refund response:', JSON.stringify(refundData));
+        const err = new Error(`PayPal declined the refund: ${refundData?.message || 'Unknown error'}`);
+        err.status = 500;
+        throw err;
+    }
+
+    const refundedAt = new Date().toISOString();
+    const originalOrderId = booking.paypal_order_id;
+
+    await new Promise((resolve, reject) => {
+        db.run(
+            `UPDATE bookings SET status = 'refunded', paypal_order_id = ?, refund_amount = ?, refunded_at = ?, paypal_refund_id = ? WHERE id = ?`,
+            [`REFUNDED:${originalOrderId}`, parseFloat(refundValue), refundedAt, refundData.id, bookingId],
+            (dbErr) => (dbErr ? reject(dbErr) : resolve())
+        );
+    });
+
+    await new Promise((resolve, reject) => {
+        db.run(
+            `INSERT INTO system_logs (event_type, message, metadata) VALUES (?, ?, ?)`,
+            [
+                'REFUND_ISSUED',
+                `Refund of $${refundValue} issued for ${booking.player_name} (Booking #${bookingId})`,
+                JSON.stringify({
+                    booking_id: bookingId,
+                    session_id: booking.session_id,
+                    refund_amount: refundValue,
+                    paypal_refund_id: refundData.id,
+                    original_order_id: originalOrderId
+                })
+            ],
+            (dbErr) => (dbErr ? reject(dbErr) : resolve())
+        );
+    });
+
+    if (promoteWaitlist && booking.status === 'active') {
+        promoteNextWaitlistPlayer(booking.session_id);
+    }
+
+    return {
+        success: true,
+        booking_id: bookingId,
+        session_id: booking.session_id,
+        player_name: booking.player_name,
+        message: `Refund of $${refundValue} successfully issued to PayPal for ${booking.player_name}.`,
+        paypal_refund_id: refundData.id,
+        refund_status: refundData.status,
+        refund_amount: refundValue,
+        refunded_at: refundedAt
+    };
+}
+
 // 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers
 app.get('/api/sessions', (req, res) => {
     // Run the expiration logic sweep right before sending schedule updates to ensure client view precision
@@ -305,13 +445,21 @@ app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
 
 // 10. Admin Portal: Fetch active roster and waitlist for a specific session block
 app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
-    db.all(`SELECT id, player_name, parent_name, parent_email, status, paypal_order_id, invitation_sent_at FROM bookings WHERE session_id = ? ORDER BY status ASC, queue_position ASC, created_at ASC`, [req.params.id], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ 
-            active: rows.filter(r => r.status === 'active'), 
-            waitlist: rows.filter(r => r.status === 'waitlist' || r.status === 'pending_payment') 
-        });
-    });
+    db.all(
+        `SELECT id, player_name, parent_name, parent_email, status, paypal_order_id,
+                invitation_sent_at, refund_amount, refunded_at, paypal_refund_id
+         FROM bookings WHERE session_id = ?
+         ORDER BY status ASC, queue_position ASC, created_at ASC`,
+        [req.params.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({
+                active: rows.filter(r => r.status === 'active'),
+                waitlist: rows.filter(r => r.status === 'waitlist' || r.status === 'pending_payment'),
+                refunded: rows.filter(r => r.status === 'refunded')
+            });
+        }
+    );
 });
 
 // 10b. Admin Portal: Reorder structural waitlist queue indexes manually
@@ -342,100 +490,163 @@ app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
 
 // 11b. Admin Portal: Issue a PayPal refund for a booking (full or partial)
 app.post('/api/admin/bookings/:id/refund', verifyAdminToken, async (req, res) => {
-    const bookingId = req.params.id;
-    const { refund_amount } = req.body;
+    const { refund_amount, promote_waitlist } = req.body;
+    try {
+        const result = await issuePayPalRefund(req.params.id, refund_amount, {
+            promoteWaitlist: !!promote_waitlist
+        });
+        res.json(result);
+    } catch (error) {
+        console.error('[REFUND ERROR] Unexpected exception:', error);
+        res.status(error.status || 500).json({
+            error: error.message || 'An unexpected error occurred while communicating with PayPal. No refund was issued.'
+        });
+    }
+});
 
-    if (!refund_amount || isNaN(parseFloat(refund_amount)) || parseFloat(refund_amount) <= 0) {
-        return res.status(400).json({ error: "A valid refund amount is required." });
+// 11c. Admin Portal: Refund catalog — all paid bookings grouped by session (past / current / future)
+app.post('/api/admin/refunds/catalog', verifyAdminToken, (req, res) => {
+    const timeframe = (req.body.timeframe || 'all').toLowerCase();
+    const nowIso = new Date().toISOString();
+
+    let timeClause = '';
+    if (timeframe === 'past') {
+        timeClause = `AND s.end_time < '${nowIso}'`;
+    } else if (timeframe === 'future') {
+        timeClause = `AND s.start_time > '${nowIso}'`;
+    } else if (timeframe === 'current') {
+        timeClause = `AND s.start_time <= '${nowIso}' AND s.end_time >= '${nowIso}'`;
     }
 
-    // Fetch the booking so we can get the PayPal order ID and session price
-    db.get(
-        `SELECT b.id, b.paypal_order_id, b.status, b.player_name, s.price as session_price
-         FROM bookings b
-         JOIN sessions s ON b.session_id = s.id
-         WHERE b.id = ?`,
-        [bookingId],
-        async (err, booking) => {
-            if (err || !booking) return res.status(404).json({ error: "Booking record not found." });
+    const query = `
+        SELECT
+            s.id AS session_id,
+            s.title AS session_title,
+            s.start_time,
+            s.end_time,
+            s.price AS session_price,
+            s.location,
+            s.event_type,
+            b.id AS booking_id,
+            b.player_name,
+            b.parent_name,
+            b.parent_email,
+            b.status,
+            b.paypal_order_id,
+            b.refund_amount,
+            b.refunded_at,
+            b.paypal_refund_id,
+            b.created_at AS booked_at
+        FROM sessions s
+        INNER JOIN bookings b ON b.session_id = s.id
+        WHERE b.paypal_order_id IS NOT NULL
+          AND b.paypal_order_id != 'WAITLIST_FREE'
+          AND b.paypal_order_id != 'WAIVED_FREE'
+          ${timeClause}
+        ORDER BY s.start_time DESC, b.id ASC`;
 
-            if (!booking.paypal_order_id || booking.paypal_order_id === 'WAITLIST_FREE' || booking.paypal_order_id === 'WAIVED_FREE') {
-                return res.status(400).json({ error: "No PayPal payment on record for this booking — nothing to refund." });
-            }
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
 
-            if (booking.status === 'refunded') {
-                return res.status(400).json({ error: "This booking has already been refunded." });
-            }
+        const sessionsMap = new Map();
+        rows.forEach(row => {
+            if (!sessionsMap.has(row.session_id)) {
+                const start = new Date(row.start_time);
+                const end = new Date(row.end_time);
+                const now = new Date();
+                let temporal = 'future';
+                if (end < now) temporal = 'past';
+                else if (start <= now && end >= now) temporal = 'current';
 
-            const refundValue = parseFloat(refund_amount).toFixed(2);
-
-            try {
-                const accessToken = await getPayPalAccessToken();
-                const paypalHost = process.env.PAYPAL_MODE === 'live'
-                    ? 'https://api-m.paypal.com'
-                    : 'https://api-m.sandbox.paypal.com';
-
-                // Step 1: Retrieve the order to find the capture ID
-                const orderRes = await fetch(`${paypalHost}/v2/checkout/orders/${booking.paypal_order_id}`, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+                sessionsMap.set(row.session_id, {
+                    session_id: row.session_id,
+                    title: row.session_title,
+                    start_time: row.start_time,
+                    end_time: row.end_time,
+                    price: row.session_price,
+                    location: row.location,
+                    event_type: row.event_type,
+                    temporal,
+                    bookings: []
                 });
-                const orderData = await orderRes.json();
-
-                // Drill down to the capture ID from the order's purchase units
-                const captureId = orderData?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
-                if (!captureId) {
-                    return res.status(400).json({ error: "Could not locate a completed PayPal capture to refund. The order may not have been fully captured." });
-                }
-
-                // Step 2: Issue the refund against the capture
-                const refundRes = await fetch(`${paypalHost}/v2/payments/captures/${captureId}/refund`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        amount: { value: refundValue, currency_code: 'USD' },
-                        note_to_payer: `Refund issued by Coach Ben for ${booking.player_name}'s hockey training session.`
-                    })
-                });
-                const refundData = await refundRes.json();
-
-                if (!refundRes.ok || refundData.status === 'FAILED') {
-                    console.error("[REFUND ERROR] PayPal refund response:", JSON.stringify(refundData));
-                    return res.status(500).json({ error: `PayPal declined the refund: ${refundData?.message || 'Unknown error'}` });
-                }
-
-                // Step 3: Mark the booking as refunded in the DB (preserve the record for audit)
-                db.run(
-                    `UPDATE bookings SET status = 'refunded', paypal_order_id = ? WHERE id = ?`,
-                    [`REFUNDED:${booking.paypal_order_id}`, bookingId],
-                    function(dbErr) {
-                        if (dbErr) return res.status(500).json({ error: "Refund was issued with PayPal but failed to update local records. Check manually." });
-
-                        // Log the refund event for the ops ledger
-                        db.run(
-                            `INSERT INTO system_logs (event_type, message, metadata) VALUES (?, ?, ?)`,
-                            [
-                                'REFUND_ISSUED',
-                                `Refund of $${refundValue} issued for ${booking.player_name} (Booking #${bookingId})`,
-                                JSON.stringify({ booking_id: bookingId, refund_amount: refundValue, paypal_refund_id: refundData.id, original_order_id: booking.paypal_order_id })
-                            ]
-                        );
-
-                        res.json({
-                            success: true,
-                            message: `Refund of $${refundValue} successfully issued to PayPal for ${booking.player_name}.`,
-                            paypal_refund_id: refundData.id,
-                            refund_status: refundData.status
-                        });
-                    }
-                );
-
-            } catch (error) {
-                console.error("[REFUND ERROR] Unexpected exception:", error);
-                res.status(500).json({ error: "An unexpected error occurred while communicating with PayPal. No refund was issued." });
             }
+
+            const refundable = row.status !== 'refunded' && isRefundablePayPalOrder(row.paypal_order_id);
+            sessionsMap.get(row.session_id).bookings.push({
+                booking_id: row.booking_id,
+                player_name: row.player_name,
+                parent_name: row.parent_name,
+                parent_email: row.parent_email,
+                status: row.status,
+                paypal_order_id: row.paypal_order_id,
+                refundable,
+                default_refund_amount: row.session_price,
+                refund_amount: row.refund_amount,
+                refunded_at: row.refunded_at,
+                paypal_refund_id: row.paypal_refund_id,
+                booked_at: row.booked_at
+            });
+        });
+
+        const sessions = Array.from(sessionsMap.values());
+        const summary = {
+            session_count: sessions.length,
+            refundable_count: sessions.reduce((n, s) => n + s.bookings.filter(b => b.refundable).length, 0),
+            refunded_count: sessions.reduce((n, s) => n + s.bookings.filter(b => b.status === 'refunded').length, 0)
+        };
+
+        res.json({ success: true, timeframe, summary, sessions });
+    });
+});
+
+// 11d. Admin Portal: Programmatic bulk refunds (manual amounts per booking or session price default)
+app.post('/api/admin/refunds/bulk', verifyAdminToken, async (req, res) => {
+    const { items, promote_waitlist } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Provide a non-empty items array: [{ booking_id, refund_amount? }, ...]' });
+    }
+
+    const results = [];
+    for (const item of items) {
+        const bookingId = item.booking_id;
+        if (!bookingId) {
+            results.push({ booking_id: null, success: false, error: 'Missing booking_id' });
+            continue;
         }
-    );
+
+        let amount = item.refund_amount;
+        if (amount == null || amount === '') {
+            const booking = await new Promise((resolve, reject) => {
+                db.get(
+                    `SELECT s.price FROM bookings b JOIN sessions s ON b.session_id = s.id WHERE b.id = ?`,
+                    [bookingId],
+                    (dbErr, row) => (dbErr ? reject(dbErr) : resolve(row))
+                );
+            });
+            if (!booking) {
+                results.push({ booking_id: bookingId, success: false, error: 'Booking not found' });
+                continue;
+            }
+            amount = booking.price;
+        }
+
+        try {
+            const result = await issuePayPalRefund(bookingId, amount, {
+                promoteWaitlist: !!promote_waitlist
+            });
+            results.push({ booking_id: bookingId, success: true, ...result });
+        } catch (error) {
+            results.push({ booking_id: bookingId, success: false, error: error.message });
+        }
+    }
+
+    const succeeded = results.filter(r => r.success).length;
+    res.json({
+        success: succeeded === results.length,
+        message: `Processed ${results.length} refund(s): ${succeeded} succeeded, ${results.length - succeeded} failed.`,
+        results
+    });
 });
 
 // 12. Admin Portal: Push active player down to waitlist and pull next player up

@@ -165,7 +165,8 @@
 
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink" target="_blank">✉ Contact Coach</a>
-    <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 View Operations Dashboard →</a>
+    <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 Operations Dashboard →</a>
+    <a href="/refunds.html" id="linkRefundsCenter" style="display: none; color: #17a2b8; background: #fff; padding: 6px 12px; border: 1px solid #17a2b8; border-radius: 4px; margin-left: 8px;">💸 PayPal Refunds Center →</a>
 </div>
 
 <div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
@@ -283,7 +284,10 @@
         <div id="activeRosterList" style="margin-bottom: 20px;"></div>
 
         <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
-        <div id="waitlistRosterList" style="margin-bottom: 25px;"></div>
+        <div id="waitlistRosterList" style="margin-bottom: 20px;"></div>
+
+        <h4 id="refundedRosterTitle" style="display:none; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #28a745; border-bottom: 2px solid #c3e6cb; padding-bottom: 4px;">Refunded (PayPal)</h4>
+        <div id="refundedRosterList" style="display:none; margin-bottom: 25px;"></div>
 
         <div style="margin-top: 30px; background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 6px;">
             <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #333; letter-spacing: 0.5px;">📢 Broadcast Update to Roster</h4>
@@ -317,6 +321,10 @@
         </div>
         <span style="font-size:11px; color:#888; display:block; margin-top:4px;">Session price shown as default. Adjust for a partial refund.</span>
     </div>
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:14px; cursor:pointer;">
+        <input type="checkbox" id="refundPromoteWaitlistCheck" checked>
+        Invite next waitlisted player after refund
+    </label>
     <div style="display:flex; gap:8px; margin-top:18px;">
         <button class="btn" style="flex:1; background:#6c757d; color:white;" onclick="closeRefundModal()">Cancel</button>
         <button class="btn btn-danger" id="confirmRefundBtn" style="flex:1;" onclick="submitRefund()">Confirm & Refund</button>
@@ -400,6 +408,9 @@
             },
 
             validRange: function(nowDate) {
+                if (adminToken) {
+                    return { start: new Date(nowDate.valueOf()).setFullYear(nowDate.getFullYear() - 2), end: new Date(nowDate.valueOf()).setFullYear(nowDate.getFullYear() + 2) };
+                }
                 return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
             },
             events: function(info, successCallback, failureCallback) {
@@ -422,13 +433,25 @@
                             const isLocked = session.access_code && session.access_code !== "";
                             const titlePrefix = isLocked ? "🔒 " : "";
 
+                            const now = new Date();
+                            const start = new Date(session.start_time);
+                            const end = new Date(session.end_time);
+                            let bg = isFull ? '#555555' : '#0070ba';
+                            let border = isFull ? '#444444' : '#005fa3';
+                            if (adminToken) {
+                                if (end < now) { bg = '#6c757d'; border = '#5a6268'; }
+                                else if (start <= now && end >= now) { bg = isFull ? '#5a6268' : '#28a745'; border = '#1e7e34'; }
+                                else if (isFull) { bg = '#555555'; border = '#444444'; }
+                                else { bg = '#0070ba'; border = '#005fa3'; }
+                            }
+
                             return {
                                 id: session.id,
                                 title: `${titlePrefix}${session.title} (${session.active_count}/${targetCap})`,
                                 start: session.start_time,
                                 end: session.end_time,
-                                backgroundColor: isFull ? '#555555' : '#0070ba',
-                                borderColor: isFull ? '#444444' : '#005fa3',
+                                backgroundColor: bg,
+                                borderColor: border,
                                 extendedProps: { 
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
@@ -834,6 +857,8 @@
     function loadActiveRosterDashboard(sessionId) {
         const activeDiv = document.getElementById('activeRosterList');
         const waitDiv = document.getElementById('waitlistRosterList');
+        const refundedDiv = document.getElementById('refundedRosterList');
+        const refundedTitle = document.getElementById('refundedRosterTitle');
 
         fetch(`/api/admin/sessions/${sessionId}/roster`, {
             method: 'POST',
@@ -895,6 +920,26 @@
                     </tr>`;
                 });
                 waitDiv.innerHTML = html + `</table>`;
+            }
+
+            const refunded = data.refunded || [];
+            if (refunded.length === 0) {
+                refundedDiv.innerHTML = '';
+                refundedDiv.style.display = 'none';
+                refundedTitle.style.display = 'none';
+            } else {
+                refundedTitle.style.display = 'block';
+                refundedDiv.style.display = 'block';
+                let refHtml = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
+                refunded.forEach(p => {
+                    const amt = p.refund_amount != null ? `$${parseFloat(p.refund_amount).toFixed(2)}` : '—';
+                    const when = p.refunded_at ? new Date(p.refunded_at).toLocaleString() : '';
+                    refHtml += `<tr style='border-bottom:1px solid #eee; height:35px; background:#f0fff4;'>
+                        <td><b>${p.player_name}</b><br><span style='font-size:10px; color:#28a745;'>${amt} ${when ? '· ' + when : ''}</span></td>
+                        <td style='text-align:right; font-size:10px; color:#666;'>${p.paypal_refund_id || 'PayPal refunded'}</td>
+                    </tr>`;
+                });
+                refundedDiv.innerHTML = refHtml + `</table>`;
             }
         });
     }
@@ -1015,7 +1060,8 @@
             document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
             document.getElementById('contactCoachLink').style.display = 'none'; 
             document.getElementById('filterBar').style.display = 'none';
-            document.getElementById('linkOpsDashboard').style.display = 'inline-block'; 
+            document.getElementById('linkOpsDashboard').style.display = 'inline-block';
+            document.getElementById('linkRefundsCenter').style.display = 'inline-block';
         } else {
             document.body.style.backgroundColor = '#f8f9fa'; 
             document.getElementById('adminBadge').style.display = 'none';
@@ -1023,7 +1069,8 @@
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
             document.getElementById('contactCoachLink').style.display = 'inline-block'; 
             document.getElementById('filterBar').style.display = 'flex';
-            document.getElementById('linkOpsDashboard').style.display = 'none'; 
+            document.getElementById('linkOpsDashboard').style.display = 'none';
+            document.getElementById('linkRefundsCenter').style.display = 'none';
         }
     }
 
@@ -1103,7 +1150,11 @@
         fetch(`/api/admin/bookings/${refundTargetBookingId}/refund`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: adminToken, refund_amount: amount.toFixed(2) })
+            body: JSON.stringify({
+                token: adminToken,
+                refund_amount: amount.toFixed(2),
+                promote_waitlist: document.getElementById('refundPromoteWaitlistCheck').checked
+            })
         })
         .then(res => res.json())
         .then(data => {
