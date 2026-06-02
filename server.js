@@ -104,6 +104,18 @@ function resolvePayPalOrderId(paypalOrderId) {
     return paypalOrderId;
 }
 
+function logSystemEvent(eventType, message, metadata = {}) {
+    db.run(
+        `INSERT INTO system_logs (event_type, message, metadata) VALUES (?, ?, ?)`,
+        [eventType, message, JSON.stringify(metadata)],
+        () => {}
+    );
+}
+
+function isEmailConfigured() {
+    return !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+}
+
 function sendBookingConfirmationEmail({
     parentEmail,
     parentName,
@@ -115,7 +127,14 @@ function sendBookingConfirmationEmail({
     amountPaid,
     isWaitlist
 }) {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !parentEmail) return;
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Booking confirmation email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Booking confirmation email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
 
     const when = startTime
         ? new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -136,7 +155,12 @@ function sendBookingConfirmationEmail({
     };
 
     transporter.sendMail(mailOptions, (mailErr) => {
-        if (mailErr) console.error("[ERROR] Failed sending booking confirmation email:", mailErr.message);
+        if (mailErr) {
+            console.error("[ERROR] Failed sending booking confirmation email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Booking confirmation email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Booking confirmation email sent.', { parentEmail, playerName, sessionTitle, isWaitlist });
     });
 }
 
@@ -148,7 +172,14 @@ function sendMovedToWaitlistEmail({
     sessionStart,
     location
 }) {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !parentEmail) return;
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Moved-to-waitlist email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Moved-to-waitlist email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
 
     const when = sessionStart
         ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -163,7 +194,12 @@ function sendMovedToWaitlistEmail({
     };
 
     transporter.sendMail(mailOptions, (mailErr) => {
-        if (mailErr) console.error("[ERROR] Failed sending waitlist status email:", mailErr.message);
+        if (mailErr) {
+            console.error("[ERROR] Failed sending waitlist status email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Moved-to-waitlist email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Moved-to-waitlist email sent.', { parentEmail, playerName, sessionTitle });
     });
 }
 
@@ -750,18 +786,35 @@ app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
         [req.params.id],
         (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
-        db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [req.params.id], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            sendMovedToWaitlistEmail({
-                parentEmail: booking.parent_email,
-                parentName: booking.parent_name,
-                playerName: booking.player_name,
-                sessionTitle: booking.title,
-                sessionStart: booking.start_time,
-                location: booking.location
+        db.get(
+            `SELECT COALESCE(MAX(queue_position), 0) AS max_queue
+             FROM bookings
+             WHERE session_id = ? AND status IN ('waitlist', 'pending_payment') AND id != ?`,
+            [booking.session_id, req.params.id],
+            (queueErr, queueRow) => {
+                if (queueErr) return res.status(500).json({ error: queueErr.message });
+                const nextQueuePos = (queueRow?.max_queue || 0) + 1;
+
+                db.run(
+                    `UPDATE bookings
+                     SET status = 'waitlist', invitation_sent_at = NULL, queue_position = ?
+                     WHERE id = ?`,
+                    [nextQueuePos, req.params.id],
+                    function(err) {
+                        if (err) return res.status(500).json({ error: err.message });
+                        sendMovedToWaitlistEmail({
+                            parentEmail: booking.parent_email,
+                            parentName: booking.parent_name,
+                            playerName: booking.player_name,
+                            sessionTitle: booking.title,
+                            sessionStart: booking.start_time,
+                            location: booking.location
+                        });
+
+                        promoteNextWaitlistPlayer(booking.session_id, res, { excludeBookingId: Number(req.params.id) });
+                    }
+                );
             });
-            promoteNextWaitlistPlayer(booking.session_id, res);
-        });
     });
 });
 
@@ -907,16 +960,17 @@ app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
     });
 });
 
-async function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
+async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
+    const { excludeBookingId = null } = options;
     const nextUpQuery = `
         SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
-        WHERE b.session_id = ? AND b.status = 'waitlist'
+        WHERE b.session_id = ? AND b.status = 'waitlist' AND (? IS NULL OR b.id != ?)
         ORDER BY b.queue_position ASC, b.created_at ASC
         LIMIT 1`;
 
-    db.get(nextUpQuery, [sessionId], async (err, nextPlayer) => {
+    db.get(nextUpQuery, [sessionId, excludeBookingId, excludeBookingId], async (err, nextPlayer) => {
         if (err) {
             if (optionalResContext) optionalResContext.status(500).json({ error: err.message });
             return;
