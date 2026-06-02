@@ -72,7 +72,8 @@ function runExpiredReservationsSweep(callback) {
 // Helper function to fetch an authorization token from PayPal's Live production API
 async function getPayPalAccessToken() {
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
-    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.sandbox.paypal.com';
+    // FIX: Removed the duplicate duplicated subdomain string in the fallback URL
+    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
     
     const response = await fetch(`${paypalHost}/v1/oauth2/token`, {
         method: 'POST',
@@ -83,7 +84,7 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
-// 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers (Updated to fetch location data)
+// 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers
 app.get('/api/sessions', (req, res) => {
     // Run the expiration logic sweep right before sending schedule updates to ensure client view precision
     runExpiredReservationsSweep(() => {
@@ -100,6 +101,14 @@ app.get('/api/sessions', (req, res) => {
             res.json(rows);
         });
     });
+});
+
+// New Public Endpoint to let frontend pages safely request the active Client ID configuration
+app.get('/api/config/paypal-client-id', (req, res) => {
+    if (!process.env.PAYPAL_CLIENT_ID) {
+        return res.status(500).json({ error: "Merchant client token signature is unassigned on server profiles." });
+    }
+    res.json({ clientId: process.env.PAYPAL_CLIENT_ID });
 });
 
 // 2. Public: Validate a coupon code and return its value to the frontend layout
@@ -197,7 +206,7 @@ app.post('/api/book', async (req, res) => {
     });
 });
 
-// 3b. Public Landing Page Endpoint: Look up details for a player claiming an open spot (Updated to include s.location)
+// 3b. Public Landing Page Endpoint: Look up details for a player claiming an open spot
 app.post('/api/claim-spot/lookup', (req, res) => {
     const { booking_id } = req.body;
     const query = `
@@ -233,7 +242,7 @@ function verifyAdminToken(req, res, next) {
     } catch (err) { return res.status(401).json({ error: "Your portal login session has expired." }); }
 }
 
-// 5. Admin Portal: Create an empty calendar slot (Updated to ingest location)
+// 5. Admin Portal: Create an empty calendar slot
 app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
     const { title, start_time, end_time, price, event_type, access_code, location } = req.body; 
     const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location) VALUES (?, ?, ?, ?, ?, ?, ?)`;
@@ -287,7 +296,7 @@ app.post('/api/admin/coupons/create', verifyAdminToken, (req, res) => {
 });
 
 // 9. Admin Portal: Terminate/Revoke an active coupon code by index key
-app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
+app.delete('/api/admin/coupons/:id', signature, verifyAdminToken, (req, res) => {
     db.run(`DELETE FROM coupons WHERE id = ?`, [req.params.id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
@@ -307,7 +316,7 @@ app.post('/api/admin/sessions/:id/roster', verifyAdminToken, (req, res) => {
 
 // 10b. Admin Portal: Reorder structural waitlist queue indexes manually
 app.post('/api/admin/sessions/:id/reorder-waitlist', verifyAdminToken, (req, res) => {
-    const { ordered_ids } = req.body; // Expects array of row IDs in matching array sequence
+    const { ordered_ids } = req.body; 
     if (!Array.isArray(ordered_ids)) return res.status(400).json({ error: "Malformed sorting mapping request context." });
     
     let processed = 0;
@@ -366,7 +375,7 @@ app.post('/api/admin/blacklist/list', verifyAdminToken, (req, res) => {
     });
 });
 
-// 15. Admin Portal: Send a global broadcast email to everyone registered for a specific session slot (Updated template to include location context)
+// 15. Admin Portal: Send a global broadcast email to everyone registered for a specific session slot
 app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
     const { subject, message } = req.body;
@@ -413,7 +422,6 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
     db.get(financeQuery, [], (err, financeRow) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Calculate Capacity Utilization Rate percentages cleanly across active sessions
         db.all(`SELECT id, event_type, custom_capacity FROM sessions`, [], (err, sessions) => {
             if (err) return res.status(500).json({ error: err.message });
 
@@ -467,7 +475,6 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
 });
 
 function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
-    // Select the player with top sorting priority (lowest queue position, breaking ties with historical creation times)
     const nextUpQuery = `SELECT id, parent_email, parent_name, player_name FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY queue_position ASC, created_at ASC LIMIT 1`;
     
     db.get(nextUpQuery, [sessionId], (err, nextPlayer) => {
@@ -479,20 +486,17 @@ function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
         if (nextPlayer) {
             const timestampNow = new Date().toISOString();
             
-            // Switch status footprint to 'pending_payment' to reserve the open ice slot
             db.run(`UPDATE bookings SET status = 'pending_payment', invitation_sent_at = ? WHERE id = ?`, [timestampNow, nextPlayer.id], (updateErr) => {
                 if (updateErr) {
                     if (optionalResContext) optionalResContext.status(500).json({ error: updateErr.message });
                     return;
                 }
 
-                // Compile and broadcast the 24-hour checkout claim token notification email link
                 const claimUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}`;
                 const mailOptions = {
                     from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
                     to: nextPlayer.parent_email,
                     subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                    // FIX: Wrap the claimUrl inside < > brackets so email clients hyperlink the entire path
                     text: `Hi ${nextPlayer.parent_name},\n\nA roster opening is available for ${nextPlayer.player_name} in our upcoming training session!\n\nTo lock down this spot, please visit the link below to complete your checkout and secure payment registration parameters:\n\n<${claimUrl}>\n\n⚠️ IMPORTANT: This link holds your slot for exactly 24 hours. If registration payment is not completed before then, this position will automatically expire and forfeit to the next alternate player in line.\n\nBest regards,\nCoach Ben Stadey`
                 };
 

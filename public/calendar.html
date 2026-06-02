@@ -316,8 +316,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-<script src="https://www.paypal.com/sdk/js?client-id=test&currency=USD"></script>
-
 <script>
     let calendar;
     let selectedEvent = null;
@@ -327,7 +325,6 @@
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
 
-    // Master dictionary map containing detailed address data models
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
         "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
@@ -340,6 +337,17 @@
         updateFilterButtonUI(initialType);
         
         if (adminToken) { applyCoachUIMode(true); }
+
+        // Dynamic Production PayPal Injection Protocol Hook
+        fetch('/api/config/paypal-client-id')
+            .then(res => res.json())
+            .then(config => {
+                const script = document.createElement('script');
+                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                script.onload = () => initializePayPalButtons(); // Render buttons once script settles
+                document.body.appendChild(script);
+            })
+            .catch(err => console.error("CRITICAL: Failed to stream configuration keys from system backend environments."));
 
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
@@ -387,7 +395,7 @@
                                 extendedProps: { 
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
-                                    price: session.price,
+                                price: session.price,
                                     access_code: session.access_code,
                                     event_type: session.event_type,
                                     maxActive: targetCap,
@@ -494,7 +502,6 @@
         const props = event.extendedProps;
         document.getElementById('modalTitle').innerText = event.title;
         
-        // Dynamically resolve target text string arrays using the address lookup map dictionaries
         const solvedVenueName = props.location || "Location Unassigned";
         const solvedAddressText = locationAddressMap[solvedVenueName] ? ` (${locationAddressMap[solvedVenueName]})` : "";
         document.getElementById('modalLocation').innerText = `📍 ${solvedVenueName}${solvedAddressText}`;
@@ -546,12 +553,16 @@
         validateForm();
     }
 
-    paypal.Buttons({
-        onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
-        onClick: function() { validateForm(); },
-        createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
-        onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); }
-    }).render('#paypal-button-container');
+    // Isolated initialization block to avoid window element race condition loops
+    function initializePayPalButtons() {
+        if (!window.paypal) return;
+        paypal.Buttons({
+            onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
+            onClick: function() { validateForm(); },
+            createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
+            onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); }
+        }).render('#paypal-button-container');
+    }
 
     function submitBooking(orderId) {
         const finalOrderId = (currentSessionPrice <= 0) ? 'WAIVED_FREE' : orderId;
@@ -580,7 +591,7 @@
     function openCreateSlotModal(dateStr) {
         document.getElementById('newStart').value = `${dateStr}T17:00`;
         document.getElementById('newEnd').value = `${dateStr}T18:30`;
-        document.getElementById('newLocation').selectedIndex = 0; // Reset arena selector indexes
+        document.getElementById('newLocation').selectedIndex = 0; 
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
     }
@@ -590,7 +601,7 @@
             token: adminToken,
             title: document.getElementById('newTitle').value || "Skills Session",
             event_type: document.getElementById('newEventType').value,
-            location: document.getElementById('newLocation').value, // Package selector context values
+            location: document.getElementById('newLocation').value, 
             access_code: document.getElementById('newAccessCode').value,
             start_time: document.getElementById('newStart').value,
             end_time: document.getElementById('newEnd').value,

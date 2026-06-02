@@ -51,7 +51,6 @@
         <div class="details-list">
             <div class="details-row"><span class="details-label">Training Session:</span><span class="details-value" id="lblSessionTitle">-</span></div>
             <div class="details-row"><span class="details-label">Date & Time:</span><span class="details-value" id="lblSessionTime">-</span></div>
-            <!-- Expanded UI display container for physical location rendering tracking maps -->
             <div class="details-row" id="lblLocationRow"><span class="details-label">Rink Location:</span><span class="details-value" id="lblSessionLocation">-</span></div>
             <div class="details-row"><span class="details-label">Registered Player:</span><span class="details-value" id="lblPlayerName">-</span></div>
             <div class="details-row"><span class="details-label">Parent/Guardian:</span><span class="details-value" id="lblParentName">-</span></div>
@@ -91,7 +90,6 @@
     <a href="/calendar.html" class="btn-home">Return to Schedule</a>
 </div>
 
-<script src="https://www.paypal.com/sdk/js?client-id=test&currency=USD"></script>
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     const bookingId = urlParams.get('booking_id');
@@ -99,7 +97,6 @@
     let targetRecordData = null;
     let paypalActionsInstance = null;
 
-    // Master dictionary address lookup configurations 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
         "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
@@ -111,7 +108,19 @@
             showScreen('errorPanel');
             return;
         }
-        lookupInvitationContext();
+
+        // Production Payment Engine Bridge: Streams Client ID parameters from the backend configuration layers securely
+        fetch('/api/config/paypal-client-id')
+            .then(res => res.json())
+            .then(config => {
+                const script = document.createElement('script');
+                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                script.onload = () => lookupInvitationContext(); // Proceed with lookup matching once code assets mount safely
+                document.body.appendChild(script);
+            })
+            .catch(err => {
+                document.getElementById('loadingState').innerText = "CRITICAL ERROR: Failed to parse required environment parameters from payment engine infrastructure.";
+            });
     });
 
     function lookupInvitationContext() {
@@ -141,11 +150,9 @@
     function renderFormDetails() {
         document.getElementById('lblSessionTitle').innerText = targetRecordData.title;
         
-        // Format the date string cleanly
         const parsedDate = new Date(targetRecordData.start_time);
         document.getElementById('lblSessionTime').innerText = parsedDate.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
         
-        // Match incoming location parameter payload strings against address maps cleanly
         const venueName = targetRecordData.location || "Location Unassigned";
         const physicalAddress = locationAddressMap[venueName] ? `\n(${locationAddressMap[venueName]})` : "";
         document.getElementById('lblSessionLocation').innerText = `${venueName}${physicalAddress}`;
@@ -170,6 +177,7 @@
     }
 
     function initializePaypalButtons() {
+        if (!window.paypal) return;
         paypal.Buttons({
             onInit: function(data, actions) {
                 paypalActionsInstance = actions;
