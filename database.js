@@ -82,6 +82,10 @@ db.serialize(() => {
     db.run(`ALTER TABLE sessions ADD COLUMN location TEXT DEFAULT NULL`, (err) => {
         // Silently swallow errors if column already exists from previous startups
     });
+
+    db.run(`ALTER TABLE bookings ADD COLUMN refund_amount REAL DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE bookings ADD COLUMN refunded_at TEXT DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE bookings ADD COLUMN paypal_refund_id TEXT DEFAULT NULL`, (err) => {});
 });
 
 module.exports = db;
