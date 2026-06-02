@@ -10,6 +10,12 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public')); 
 
+const LOCATION_ADDRESS_MAP = {
+    "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
+    "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
+    "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
+};
+
 // Secure Production Profile Configurations
 const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
 const ADMIN_PASSWORD = process.env.ADMIN_PASS; 
@@ -118,6 +124,13 @@ function isEmailConfigured() {
     return !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
 }
 
+function formatRinkBlock(location) {
+    if (!location) return '';
+    const address = LOCATION_ADDRESS_MAP[location];
+    if (address) return `Rink: ${location}\nAddress: ${address}`;
+    return `Rink: ${location}`;
+}
+
 function sendBookingConfirmationEmail({
     parentEmail,
     parentName,
@@ -141,7 +154,7 @@ function sendBookingConfirmationEmail({
     const when = startTime
         ? new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
         : 'TBD';
-    const locationLine = location ? `\n📍 Location: ${location}` : '';
+    const rinkBlock = formatRinkBlock(location);
     const statusLine = isWaitlist
         ? `Status: Waitlist`
         : `Status: Active roster`;
@@ -153,7 +166,7 @@ function sendBookingConfirmationEmail({
         from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
         to: parentEmail,
         subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${locationLine}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
+        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
     };
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -186,13 +199,13 @@ function sendMovedToWaitlistEmail({
     const when = sessionStart
         ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
         : 'TBD';
-    const locationLine = location ? `\n📍 Location: ${location}` : '';
+    const rinkBlock = formatRinkBlock(location);
 
     const mailOptions = {
         from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
         to: parentEmail,
         subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${locationLine}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
     };
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -202,6 +215,45 @@ function sendMovedToWaitlistEmail({
             return;
         }
         logSystemEvent('EMAIL_SENT', 'Moved-to-waitlist email sent.', { parentEmail, playerName, sessionTitle });
+    });
+}
+
+function sendRemovedFromSessionEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    sessionTitle,
+    sessionStart,
+    location
+}) {
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Removed-from-session email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Removed-from-session email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
+
+    const when = sessionStart
+        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const rinkBlock = formatRinkBlock(location);
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[UPDATE] ${playerName} removed from session — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply directly to Coach Ben.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error("[ERROR] Failed sending removed-from-session email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Removed-from-session email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Removed-from-session email sent.', { parentEmail, playerName, sessionTitle });
     });
 }
 
@@ -607,10 +659,24 @@ app.post('/api/admin/sessions/:id/reorder-waitlist', verifyAdminToken, (req, res
 
 // 11. Admin Portal: Remove player from roster entirely (manually cancels/drops spot)
 app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
-    db.get(`SELECT session_id, status FROM bookings WHERE id = ?`, [req.params.id], (err, booking) => {
+    db.get(
+        `SELECT b.session_id, b.status, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+         FROM bookings b
+         JOIN sessions s ON b.session_id = s.id
+         WHERE b.id = ?`,
+        [req.params.id],
+        (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
         db.run(`DELETE FROM bookings WHERE id = ?`, [req.params.id], function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            sendRemovedFromSessionEmail({
+                parentEmail: booking.parent_email,
+                parentName: booking.parent_name,
+                playerName: booking.player_name,
+                sessionTitle: booking.title,
+                sessionStart: booking.start_time,
+                location: booking.location
+            });
             if (booking.status === 'active') promoteNextWaitlistPlayer(booking.session_id, res);
             else res.json({ success: true, message: "Player removed from waitlist successfully." });
         });
@@ -859,7 +925,8 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             if (rows.length === 0) return res.json({ success: true, message: "Broadcast skipped. Roster empty." });
 
             const emailList = rows.map(r => r.parent_email);
-            const locationContext = session.location ? `\n📍 Location: ${session.location}` : "";
+            const rinkBlock = formatRinkBlock(session.location);
+            const locationContext = rinkBlock ? `\n${rinkBlock}` : "";
             
             const mailOptions = {
                 from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
@@ -965,7 +1032,7 @@ app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
 async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
     const { excludeBookingId = null } = options;
     const nextUpQuery = `
-        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title
+        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title, s.location
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.session_id = ? AND b.status = 'waitlist' AND (? IS NULL OR b.id != ?)
@@ -1042,6 +1109,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
             }
 
             const isDeepLink = deepLinkUrl !== baseClaimUrl;
+            const rinkBlock = formatRinkBlock(nextPlayer.location);
             const linkLabel = isDeepLink
                 ? `👉 Complete Payment & Claim Spot (Direct Checkout Link):\n${deepLinkUrl}`
                 : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
@@ -1050,7 +1118,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                 from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
+                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
             };
 
             transporter.sendMail(mailOptions, (mailErr) => {
