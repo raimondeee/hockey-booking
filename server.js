@@ -38,6 +38,11 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+function getPublicBaseUrl() {
+    const base = process.env.PUBLIC_URL || 'http://localhost:3000';
+    return base.replace(/\/+$/, '');
+}
+
 // Fail-Safe Boot Checks to shield Ben's server on the open internet
 if (!ADMIN_PASSWORD || !JWT_SECRET) {
     console.error("\n[CRITICAL ERROR] Missing vital environment parameters (ADMIN_PASS or JWT_SECRET)!");
@@ -449,7 +454,7 @@ app.post('/api/book', async (req, res) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
-            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 6 : 25);
+            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 5 : 25);
             let maxWaitlist = session.event_type === 'small' ? 3 : 15;
 
             // Handle the unique checkout flow for a waitlist player claiming an active position hold
@@ -963,7 +968,7 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
 
             let maxPossibleCapacity = 0;
             sessions.forEach(s => { 
-                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 6 : 25); 
+                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 5 : 25); 
             });
 
             const totalActiveBookings = financeRow.total_registrations || 0;
@@ -1058,7 +1063,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                 return;
             }
 
-            const baseClaimUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}`;
+            const baseClaimUrl = `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}`;
 
             // Attempt to pre-create a PayPal order so the email contains a direct deep link
             // into PayPal checkout — the parent taps one link and lands straight in the payment flow.
@@ -1082,8 +1087,8 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                             }],
                             // Return URL carries the booking ID so claim-spot.html can finalize the booking
                             application_context: {
-                                return_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_return=1`,
-                                cancel_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_cancelled=1`,
+                                return_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_return=1`,
+                                cancel_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_cancelled=1`,
                                 brand_name: 'Ben Stadey Hockey Training',
                                 user_action: 'PAY_NOW'
                             }
