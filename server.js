@@ -296,7 +296,7 @@ app.post('/api/admin/coupons/create', verifyAdminToken, (req, res) => {
 });
 
 // 9. Admin Portal: Terminate/Revoke an active coupon code by index key
-app.delete('/api/admin/coupons/:id', signature, verifyAdminToken, (req, res) => {
+app.delete('/api/admin/coupons/:id', verifyAdminToken, (req, res) => {
     db.run(`DELETE FROM coupons WHERE id = ?`, [req.params.id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
