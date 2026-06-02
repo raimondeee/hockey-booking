@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ben Stadey Hockey Training | Live Schedule</title>
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; padding-bottom: 60px; transition: background-color 0.3s ease; }
         
@@ -363,8 +364,6 @@
         
         if (adminToken) { applyCoachUIMode(true); }
 
-        // FIXED: The PayPal script injection is isolated out of page-load thread contexts completely!
-
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
@@ -598,7 +597,7 @@
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
-            document.getElementById('deleteSessionBtn').style.display = 'none';
+            document.getElementById('deleteSessionBtn').style.none;
             document.getElementById('coachRosterPanel').style.none;
             
             if (props.access_code && props.access_code !== "") {
@@ -612,14 +611,12 @@
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
             } else {
-                // FIXED: Lazy-load PayPal script on demand right here to guarantee render success
                 injectPayPalScriptDynamic();
             }
         }
         validateForm();
     }
 
-    // New lazy-loading script injection function
     function injectPayPalScriptDynamic() {
         if (paypalScriptLoaded) {
             document.getElementById('paypal-button-wrapper').style.display = 'block';
@@ -660,7 +657,6 @@
     function initializePayPalButtons() {
         if (!window.paypal) return;
         
-        // Clean out stale iframe shells to prevent button duplication glitches
         document.getElementById('paypal-button-container').innerHTML = '';
         
         paypal.Buttons({
@@ -1011,7 +1007,6 @@
         else { passInput.type = 'password'; toggleIcon.innerText = '👁️'; }
     }
 
-    // Fixed a tiny hidden typo in the coach layout config properties 
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
