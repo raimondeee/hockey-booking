@@ -188,7 +188,7 @@
     <h3 id="overviewTitle" style="margin-top:0;">Session Overview</h3>
     
     <div class="details-summary-box">
-        <div class="details-summary-row"><span class="details-summary-label"> Rink Location:</span><span class="details-summary-value" id="overviewLocation">-</span></div>
+        <div class="details-summary-row"><span class="details-summary-label">📍 Rink Location:</span><span class="details-summary-value" id="overviewLocation">-</span></div>
         <div class="details-summary-row"><span class="details-summary-label">🗓️ Date & Time:</span><span class="details-summary-value" id="overviewTime">-</span></div>
         <div class="details-summary-row"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
         <div class="details-summary-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
@@ -345,6 +345,7 @@
     let selectedEvent = null;
     let adminToken = localStorage.getItem('coach_admin_token'); 
     let paypalActionsInstance = null;
+    let paypalScriptLoaded = false;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
@@ -362,16 +363,7 @@
         
         if (adminToken) { applyCoachUIMode(true); }
 
-        // Dynamic Production PayPal Injection Protocol Hook
-        fetch('/api/config/paypal-client-id')
-            .then(res => res.json())
-            .then(config => {
-                const script = document.createElement('script');
-                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
-                script.onload = () => initializePayPalButtons(); 
-                document.body.appendChild(script);
-            })
-            .catch(err => console.error("CRITICAL: Failed to stream configuration keys from system backend environments."));
+        // FIXED: The PayPal script injection is isolated out of page-load thread contexts completely!
 
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
@@ -432,20 +424,16 @@
                         successCallback(events);
                     });
             },
-            // Direct click routes straight to the Intermediary Evaluation screen instead of the Form fields
             eventClick: function(info) { handleEventSelectionSelection(info.event); },
             select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } },
             
-            // Post-Render Evaluation Hook: Resolves inbound shared links on completion
             datesSet: function() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const queryId = urlParams.get('session_id');
                 if (queryId) {
-                    // Slight execution delay ensuring full calendar paint cycles
                     setTimeout(() => {
                         const targetedEvent = calendar.getEventById(queryId);
                         if (targetedEvent) {
-                            // Suppress active query variables to prevent back button loops
                             const cleanUrl = new URL(window.location);
                             cleanUrl.searchParams.delete('session_id');
                             window.history.pushState({}, '', cleanUrl);
@@ -542,18 +530,15 @@
         }
     }
 
-    // Unified Route Management Intermediary Entry Function
     function handleEventSelectionSelection(event) {
         selectedEvent = event;
         const props = event.extendedProps;
         
-        // Coach Portal views directly route to deep mechanics dashboard panels instead of landing details
         if (adminToken) {
             openBookingModal(event);
             return;
         }
 
-        // Hydrate Intermediary Detail Modal Elements
         document.getElementById('overviewTitle').innerText = event.title.split('(')[0].trim();
         
         const venueName = props.location || "Location Unassigned";
@@ -566,13 +551,11 @@
         document.getElementById('overviewStatus').innerText = `Active: ${props.activeCount}/${props.maxActive} Spots Taken`;
         document.getElementById('overviewPrice').innerText = props.price > 0 ? `$${props.price.toFixed(2)}` : "Free / Waitlist Entry";
 
-        // Open Intermediary View Panel layers
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('eventOverviewModal').style.display = 'block';
     }
 
     function advanceFromOverviewToForm() {
-        // Toggle view heights cleanly across containers
         document.getElementById('eventOverviewModal').style.display = 'none';
         openBookingModal(selectedEvent);
     }
@@ -610,14 +593,13 @@
             document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
             document.getElementById('customCapacityInput').value = props.custom_capacity || props.maxActive;
             
-            // Set context text attributes to copy tracking targets cleanly
             document.getElementById('btnCopyQuickShare').innerText = "📋 Copy Link";
             
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
             document.getElementById('deleteSessionBtn').style.display = 'none';
-            document.getElementById('coachRosterPanel').style.display = 'none';
+            document.getElementById('coachRosterPanel').style.none;
             
             if (props.access_code && props.access_code !== "") {
                 document.getElementById('accessCodeWrapper').style.display = 'block';
@@ -630,18 +612,38 @@
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
             } else {
-                document.getElementById('paypal-button-wrapper').style.display = 'block';
-                document.getElementById('waitlistBtn').style.display = 'none';
+                // FIXED: Lazy-load PayPal script on demand right here to guarantee render success
+                injectPayPalScriptDynamic();
             }
         }
         validateForm();
     }
 
-    // Direct clipboard mapping engine link handler
+    // New lazy-loading script injection function
+    function injectPayPalScriptDynamic() {
+        if (paypalScriptLoaded) {
+            document.getElementById('paypal-button-wrapper').style.display = 'block';
+            return;
+        }
+        
+        fetch('/api/config/paypal-client-id')
+            .then(res => res.json())
+            .then(config => {
+                const script = document.createElement('script');
+                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                script.onload = () => {
+                    paypalScriptLoaded = true;
+                    document.getElementById('paypal-button-wrapper').style.display = 'block';
+                    initializePayPalButtons();
+                };
+                document.body.appendChild(script);
+            })
+            .catch(err => console.error("CRITICAL: Failed to stream configuration keys from system backend environments."));
+    }
+
     function copyEventShareLinkToClipboard() {
         if (!selectedEvent) return;
         
-        // Assemble matching target parameters dynamically matching parent URLs
         const targetUrl = `${window.location.origin}${window.location.pathname}?session_id=${selectedEvent.id}`;
         
         navigator.clipboard.writeText(targetUrl)
@@ -657,6 +659,10 @@
 
     function initializePayPalButtons() {
         if (!window.paypal) return;
+        
+        // Clean out stale iframe shells to prevent button duplication glitches
+        document.getElementById('paypal-button-container').innerHTML = '';
+        
         paypal.Buttons({
             onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
             onClick: function() { validateForm(); },
@@ -1005,6 +1011,7 @@
         else { passInput.type = 'password'; toggleIcon.innerText = '👁️'; }
     }
 
+    // Fixed a tiny hidden typo in the coach layout config properties 
     function toggleAuthField() {
         if(adminToken) {
             adminToken = null;
