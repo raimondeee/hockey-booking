@@ -15,18 +15,20 @@ const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
 const ADMIN_PASSWORD = process.env.ADMIN_PASS; 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Initialize the secure email engine transporter map configuration
+// Initialize email transporter (env-configurable; defaults to Gmail SMTP)
+const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
+const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '465', 10);
+const EMAIL_SECURE = process.env.EMAIL_SECURE
+    ? process.env.EMAIL_SECURE === 'true'
+    : EMAIL_PORT === 465;
+
 const transporter = nodemailer.createTransport({
-    host: 'smtp.office365.com', // Updated to GoDaddy/Microsoft 365
-    port: 587,                  // Secure submission port for Microsoft 365
-    secure: false,              // Must be false for port 587 (uses STARTTLS)
+    host: EMAIL_HOST,
+    port: EMAIL_PORT,
+    secure: EMAIL_SECURE,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false
     }
 });
 
