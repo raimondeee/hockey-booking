@@ -106,6 +106,12 @@
             margin-right: 10px; 
             white-space: nowrap;
         }
+
+        .details-summary-box { background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+        .details-summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 6px; line-height: 1.4; }
+        .details-summary-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+        .details-summary-label { color: #64748b; font-weight: bold; }
+        .details-summary-value { font-weight: bold; color: #1e293b; text-align: right; }
         
         #paypal-button-wrapper { position: relative; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
@@ -177,6 +183,20 @@
     <button class="btn btn-primary" style="width: 100%; margin-top: 10px;" onclick="submitLogin()">Login</button>
 </div>
 
+<div class="modal" id="eventOverviewModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3 id="overviewTitle" style="margin-top:0;">Session Overview</h3>
+    
+    <div class="details-summary-box">
+        <div class="details-summary-row"><span class="details-summary-label"> Rink Location:</span><span class="details-summary-value" id="overviewLocation">-</span></div>
+        <div class="details-summary-row"><span class="details-summary-label">🗓️ Date & Time:</span><span class="details-summary-value" id="overviewTime">-</span></div>
+        <div class="details-summary-row"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
+        <div class="details-summary-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
+    </div>
+    
+    <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
+</div>
+
 <div class="modal" id="bookingModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3 id="modalTitle">Book Session</h3>
@@ -242,6 +262,11 @@
     </div>
 
     <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
+        <div style="background: #e2e8f0; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; gap:10px;">
+            <span style="font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; white-space: nowrap;">📢 Quick Share Link:</span>
+            <button class="btn" id="btnCopyQuickShare" style="background: #4a5568; color: white; padding: 5px 12px; font-size: 11px; margin:0; white-space: nowrap;" onclick="copyEventShareLinkToClipboard()">📋 Copy Link</button>
+        </div>
+
         <div style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;">
             <label style="font-size: 12px; font-weight: bold; color: #856404; text-transform: uppercase;">Set Max Roster Limit:</label>
             <div style="display: flex; gap: 6px;">
@@ -315,8 +340,6 @@
     <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-
 <script>
     let calendar;
     let selectedEvent = null;
@@ -345,7 +368,7 @@
             .then(config => {
                 const script = document.createElement('script');
                 script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
-                script.onload = () => initializePayPalButtons(); // Render buttons once script settles
+                script.onload = () => initializePayPalButtons(); 
                 document.body.appendChild(script);
             })
             .catch(err => console.error("CRITICAL: Failed to stream configuration keys from system backend environments."));
@@ -396,7 +419,7 @@
                                 extendedProps: { 
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
-                                price: session.price,
+                                    price: session.price,
                                     access_code: session.access_code,
                                     event_type: session.event_type,
                                     maxActive: targetCap,
@@ -409,8 +432,29 @@
                         successCallback(events);
                     });
             },
-            eventClick: function(info) { openBookingModal(info.event); },
-            select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } }
+            // Direct click routes straight to the Intermediary Evaluation screen instead of the Form fields
+            eventClick: function(info) { handleEventSelectionSelection(info.event); },
+            select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } },
+            
+            // Post-Render Evaluation Hook: Resolves inbound shared links on completion
+            datesSet: function() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const queryId = urlParams.get('session_id');
+                if (queryId) {
+                    // Slight execution delay ensuring full calendar paint cycles
+                    setTimeout(() => {
+                        const targetedEvent = calendar.getEventById(queryId);
+                        if (targetedEvent) {
+                            // Suppress active query variables to prevent back button loops
+                            const cleanUrl = new URL(window.location);
+                            cleanUrl.searchParams.delete('session_id');
+                            window.history.pushState({}, '', cleanUrl);
+                            
+                            handleEventSelectionSelection(targetedEvent);
+                        }
+                    }, 400);
+                }
+            }
         });
         calendar.render();
     });
@@ -498,6 +542,41 @@
         }
     }
 
+    // Unified Route Management Intermediary Entry Function
+    function handleEventSelectionSelection(event) {
+        selectedEvent = event;
+        const props = event.extendedProps;
+        
+        // Coach Portal views directly route to deep mechanics dashboard panels instead of landing details
+        if (adminToken) {
+            openBookingModal(event);
+            return;
+        }
+
+        // Hydrate Intermediary Detail Modal Elements
+        document.getElementById('overviewTitle').innerText = event.title.split('(')[0].trim();
+        
+        const venueName = props.location || "Location Unassigned";
+        const physicalAddress = locationAddressMap[venueName] ? ` (${locationAddressMap[venueName]})` : "";
+        document.getElementById('overviewLocation').innerText = `${venueName}${physicalAddress}`;
+        
+        const parsedDate = new Date(event.start);
+        document.getElementById('overviewTime').innerText = parsedDate.toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
+        
+        document.getElementById('overviewStatus').innerText = `Active: ${props.activeCount}/${props.maxActive} Spots Taken`;
+        document.getElementById('overviewPrice').innerText = props.price > 0 ? `$${props.price.toFixed(2)}` : "Free / Waitlist Entry";
+
+        // Open Intermediary View Panel layers
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('eventOverviewModal').style.display = 'block';
+    }
+
+    function advanceFromOverviewToForm() {
+        // Toggle view heights cleanly across containers
+        document.getElementById('eventOverviewModal').style.display = 'none';
+        openBookingModal(selectedEvent);
+    }
+
     function openBookingModal(event) {
         selectedEvent = event;
         const props = event.extendedProps;
@@ -530,6 +609,10 @@
             document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
             document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
             document.getElementById('customCapacityInput').value = props.custom_capacity || props.maxActive;
+            
+            // Set context text attributes to copy tracking targets cleanly
+            document.getElementById('btnCopyQuickShare').innerText = "📋 Copy Link";
+            
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
@@ -554,8 +637,24 @@
         validateForm();
     }
 
-    // Isolated initialization block to avoid window element race condition loops
-// Isolated initialization block to avoid window element race condition loops
+    // Direct clipboard mapping engine link handler
+    function copyEventShareLinkToClipboard() {
+        if (!selectedEvent) return;
+        
+        // Assemble matching target parameters dynamically matching parent URLs
+        const targetUrl = `${window.location.origin}${window.location.pathname}?session_id=${selectedEvent.id}`;
+        
+        navigator.clipboard.writeText(targetUrl)
+            .then(() => {
+                const btn = document.getElementById('btnCopyQuickShare');
+                btn.innerText = "✓ Link Copied!";
+                setTimeout(() => { btn.innerText = "📋 Copy Link"; }, 2000);
+            })
+            .catch(() => {
+                alert(`Unable to copy automatically. Share this text path manually:\n\n${targetUrl}`);
+            });
+    }
+
     function initializePayPalButtons() {
         if (!window.paypal) return;
         paypal.Buttons({
@@ -563,11 +662,9 @@
             onClick: function() { validateForm(); },
             createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
-            // NEW ERROR INTERCEPTION HOOK TO TELEMETRY PIPELINE:
             onError: function(err) {
                 console.error("PayPal Smart Button Exception Matrix:", err);
                 
-                // Transparently beam the failure telemetry straight to Ben's server database
                 fetch('/api/errors/report', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -942,6 +1039,7 @@
     function closeAllModals() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('eventOverviewModal').style.display = 'none';
         document.getElementById('bookingModal').style.display = 'none';
         document.getElementById('createSlotModal').style.display = 'none';
         document.getElementById('couponManagerModal').style.display = 'none';
