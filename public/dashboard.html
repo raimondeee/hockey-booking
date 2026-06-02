@@ -37,10 +37,14 @@
 
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
         th { background: #242933; padding: 10px; text-align: left; font-weight: bold; color: #a0aec0; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #2c313c; }
-        td { padding: 10px; border-bottom: 1px solid #2c313c; }
+        td { padding: 10px; border-bottom: 1px solid #2c313c; vertical-align: top; }
         tr:hover { background: rgba(255,255,255,0.02); }
         .btn-danger-mini { background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold; }
         .btn-danger-mini:hover { background: #bd2130; }
+
+        .log-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; font-family: monospace; }
+        .tag-error { background: rgba(220, 53, 69, 0.2); color: #dc3545; border: 1px solid rgba(220, 53, 69, 0.4); }
+        .metadata-pre { margin: 0; background: #242933; padding: 6px; border-radius: 4px; border: 1px solid #3b4252; overflow-x: auto; max-width: 320px; font-size: 11px; color: #cbd5e1; }
     </style>
 </head>
 <body>
@@ -133,6 +137,29 @@
         </div>
 
     </div>
+
+    <!-- Row 3: Real-Time Payment Gateway & Telemetry Incident Logs -->
+    <div class="dashboard-row" style="grid-template-columns: 1fr;">
+        <div class="panel-box">
+            <h3 class="panel-header">📡 Real-Time Gateway Diagnostics & Incident Log Feed</h3>
+            <div style="max-height: 320px; overflow-y: auto; border: 1px solid #2c313c; border-radius: 4px;">
+                <table id="systemLogsTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 150px;">Timestamp</th>
+                            <th style="width: 160px;">Event Token</th>
+                            <th>Description Message</th>
+                            <th style="width: 330px;">Payload Trace</th>
+                        </tr>
+                    </thead>
+                    <tbody id="systemLogsBody">
+                        <tr><td colspan="4" style="text-align:center; color:#777; padding:15px;">Reading telemetry feed streams...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -150,6 +177,7 @@
             loadMasterOperationalLedgerSummary();
             loadPromoPerformanceAudits();
             loadSecurityBlacklistRoutines();
+            loadSystemIncidentLogs();
         }
     });
 
@@ -226,6 +254,45 @@
         });
     }
 
+    function loadSystemIncidentLogs() {
+        fetch('/api/admin/ledger/system-logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('systemLogsBody');
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#777; font-style:italic; padding:15px;">No diagnostic interface incidents or payment blocks recorded.</td></tr>`;
+                return;
+            }
+            
+            let html = '';
+            data.forEach(row => {
+                const rawDate = new Date(row.created_at);
+                const standardTime = rawDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                
+                // Format plain text trace properties neatly
+                let formattedMeta = '';
+                try {
+                    const parsed = JSON.parse(row.metadata);
+                    formattedMeta = `<pre class="metadata-pre">${JSON.stringify(parsed, null, 2)}</pre>`;
+                } catch(e) {
+                    formattedMeta = `<pre class="metadata-pre">${row.metadata}</pre>`;
+                }
+
+                html += `<tr>
+                    <td style="font-family:monospace; color:#9aa0a6;">${standardTime}</td>
+                    <td><span class="log-tag tag-error">${row.event_type}</span></td>
+                    <td style="font-weight:500; color:#e8eaed;">${row.message}</td>
+                    <td>${formattedMeta}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }).catch(() => console.error("Telemetry channel connection timeout error."));
+    }
+
     function submitBlacklistAddition() {
         const emailInput = document.getElementById('blacklistEmailInput');
         const email = emailInput.value.trim();
@@ -241,7 +308,7 @@
             if (data.success) {
                 emailInput.value = '';
                 loadSecurityBlacklistRoutines();
-                loadMasterOperationalLedgerSummary(); // Sync alternate capacity drops if real-time alterations apply
+                loadMasterOperationalLedgerSummary(); 
             } else { alert(data.error || "Execution error targeting ban parameters."); }
         });
     }

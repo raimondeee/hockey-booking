@@ -474,6 +474,25 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
     });
 });
 
+// 18. Public Telemetry: Capture client-side button runtime validation drops
+app.post('/api/errors/report', (req, res) => {
+    const { event_type, message, metadata } = req.body;
+    const query = `INSERT INTO system_logs (event_type, message, metadata) VALUES (?, ?, ?)`;
+    
+    db.run(query, [event_type || 'GATEWAY_ERROR', message, JSON.stringify(metadata || {})], function(err) {
+        if (err) return res.status(500).json({ error: "Failed to pipe log data." });
+        res.json({ success: true, log_id: this.lastID });
+    });
+});
+
+// 19. Admin Portal: Stream historical system incidents down to operations console
+app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
+    db.all(`SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
     const nextUpQuery = `SELECT id, parent_email, parent_name, player_name FROM bookings WHERE session_id = ? AND status = 'waitlist' ORDER BY queue_position ASC, created_at ASC LIMIT 1`;
     

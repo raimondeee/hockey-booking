@@ -209,7 +209,7 @@
             <strong>1. Assumption of Risk</strong><br>
             I understand that participation in hockey training and athletic activities involves inherent risks, including but not limited to: Falls, collisions, and contact with other participants; Injuries caused by pucks, sticks, boards, nets, or ice surfaces; Muscle strains, sprains, fractures, concussions, and other physical injuries; Risks associated with physical exertion and athletic conditioning. I voluntarily assume all risks associated with participation in these Programs.<br><br>
             <strong>2. Medical Fitness</strong><br>
-            I certify that the participant is physically fit and able to participate in hockey-related activities. I understand it is my responsibility to consult with a physician regarding any medical concerns prior to participation. I agree to disclose any medical conditions, allergies, injuries, or limitations that may affect participation.<br><br>
+            I certify that the participant is physically fit and able to participate in hockey-related activities. I understand it it my responsibility to consult with a physician regarding any medical concerns prior to participation. I agree to disclose any medical conditions, allergies, injuries, or limitations that may affect participation.<br><br>
             <strong>3. Release of Liability</strong><br>
             To the fullest extent permitted by law, I release, waive, and discharge Ben Stadey Hockey Training, its owners, coaches, trainers, employees, contractors, volunteers, affiliates, and facility operators from any and all claims, liabilities, damages, demands, costs, or causes of action arising out of or related to participation in the Programs, including injury, illness, property damage, or loss, except in cases of gross negligence or willful misconduct.<br><br>
             <strong>4. Emergency Medical Treatment</strong><br>
@@ -316,6 +316,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+
 <script>
     let calendar;
     let selectedEvent = null;
@@ -554,13 +555,31 @@
     }
 
     // Isolated initialization block to avoid window element race condition loops
+// Isolated initialization block to avoid window element race condition loops
     function initializePayPalButtons() {
         if (!window.paypal) return;
         paypal.Buttons({
             onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
             onClick: function() { validateForm(); },
             createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
-            onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); }
+            onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
+            // NEW ERROR INTERCEPTION HOOK TO TELEMETRY PIPELINE:
+            onError: function(err) {
+                console.error("PayPal Smart Button Exception Matrix:", err);
+                
+                // Transparently beam the failure telemetry straight to Ben's server database
+                fetch('/api/errors/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event_type: 'PAYPAL_CHECKOUT_BLOCK',
+                        message: `Checkout dropped for event "${selectedEvent ? selectedEvent.title : 'Unknown'}"`,
+                        metadata: { error_string: err.toString(), location: window.location.href }
+                    })
+                }).catch(telemetryErr => console.warn("Log pipeline unreachable:", telemetryErr));
+
+                alert("⚠️ Registration Payment Gateway Temporarily Offline:\n\nWe encountered an issue with the payment processor engine. Coach Ben has been notified automatically. Your roster spot has not been altered—please try checking out again shortly!");
+            }
         }).render('#paypal-button-container');
     }
 

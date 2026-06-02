@@ -198,8 +198,22 @@
                     executeRosterPromotionCheckout(details.id);
                 });
             },
+            // UPDATED ERROR INTERCEPTION HOOK FOR TELEMETRY PIPELINE:
             onError: function(err) {
-                alert("Gateway transmission error. Transaction declined.");
+                console.error("PayPal Smart Button Exception Matrix:", err);
+                
+                // Transparently beam the failure telemetry straight to Ben's server database
+                fetch('/api/errors/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event_type: 'PAYPAL_CLAIM_SPOT_BLOCK',
+                        message: `Checkout dropped for waitlisted player claiming hold spot in session "${targetRecordData ? targetRecordData.title : 'Unknown'}"`,
+                        metadata: { error_string: err.toString(), location: window.location.href }
+                    })
+                }).catch(telemetryErr => console.warn("Log pipeline unreachable:", telemetryErr));
+
+                alert("⚠️ Registration Payment Gateway Temporarily Offline:\n\nWe encountered an issue with the payment processor engine. Coach Ben has been notified automatically. Your roster spot has not been altered—please try checking out again shortly!");
             }
         }).render('#paypal-button-container');
     }
