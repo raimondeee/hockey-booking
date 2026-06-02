@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ben Stadey Hockey Training | Live Schedule</title>
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; padding-bottom: 60px; transition: background-color 0.3s ease; }
+        
+        .header-bar { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            width: 95%;
+            max-width: 960px; 
+            margin: 0 auto 10px; 
+            box-sizing: border-box;
+        }
+
+        .header-left { display: flex; align-items: center; }
+        .header-right { display: flex; align-items: center; justify-content: flex-end; }
+        
+        .filter-controls { 
+            width: 95%;
+            max-width: 960px; 
+            margin: 0 auto 20px; 
+            background: white; 
+            padding: 12px 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.02); 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            box-sizing: border-box; 
+        }
+        .filter-label { font-size: 13px; font-weight: bold; text-transform: uppercase; color: #666; letter-spacing: 0.5px; }
+        .filter-btn { padding: 6px 14px; border: 1px solid #ddd; background: #fff; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; color: #555; transition: all 0.2s ease; }
+        .filter-btn:hover { background: #f1f1f1; }
+        .filter-btn.active { background: #0070ba; color: white; border-color: #0070ba; }
+
+        #calendar { 
+            width: 95%; 
+            max-width: 960px; 
+            margin: 0 auto 20px; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
+            box-sizing: border-box;
+            min-height: 500px;
+        }
+
+        .calendar-footer-row {
+            width: 95%;
+            max-width: 960px;
+            margin: 0 auto 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        .modal { 
+            display: none; 
+            position: fixed; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            background: white; 
+            padding: 25px; 
+            border-radius: 8px; 
+            box-shadow: 0 5px 25px rgba(0,0,0,0.2); 
+            z-index: 1000; 
+            width: 90%; 
+            max-width: 450px; 
+            max-height: 85vh; 
+            overflow-y: auto; 
+            box-sizing: border-box; 
+        }
+        
+        .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: 999; }
+        .input-group { margin-bottom: 12px; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
+        .input-group input, .input-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+        
+        .waiver-box { background: #f1f1f1; border: 1px solid #ddd; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #555; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
+        .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 15px; font-size: 13px; font-weight: bold; }
+        .waiver-checkbox-group input { margin-top: 3px; cursor: pointer; }
+
+        .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: #0070ba; color: white; }
+        .btn-primary:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
+        .btn-secondary { background: #6c757d; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-right: 10px; }
+        .btn-danger { background: #dc3545; color: white; margin-top: 10px; width: 100%; }
+        .close-btn { float: right; cursor: pointer; font-size: 20px; }
+        
+        .admin-badge { 
+            background: #ffc107; 
+            color: black; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            font-weight: bold; 
+            display: none; 
+            margin-right: 10px; 
+            white-space: nowrap;
+        }
+
+        .details-summary-box { background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+        .details-summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 6px; line-height: 1.4; }
+        .details-summary-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+        .details-summary-label { color: #64748b; font-weight: bold; }
+        .details-summary-value { font-weight: bold; color: #1e293b; text-align: right; }
+        
+        #paypal-button-wrapper { position: relative; }
+        .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
+
+        #contactCoachLink, #manageCouponsBtn, #linkOpsDashboard {
+            font-size: 14px; 
+            font-weight: bold; 
+            font-family: sans-serif;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        
+        #contactCoachLink { color: #666; padding: 5px 0; }
+
+        @media (max-width: 600px) {
+            body { padding-bottom: 120px; }
+            .header-bar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 20px; }
+            .header-left { width: 100%; display: block; text-align: left; }
+            .header-right { width: 100%; justify-content: flex-end; margin-top: -46px; }
+            #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
+            #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(248, 249, 250, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #ddd; z-index: 998; }
+            #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
+            .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
+            .filter-controls { flex-wrap: wrap; padding: 10px; }
+            .filter-label { width: 100%; margin-bottom: 4px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-bar">
+    <div class="header-left">
+        <a href="/index.html" class="btn-secondary">← Back to Home</a>
+    </div>
+    <div class="header-right">
+        <button id="manageCouponsBtn" class="btn btn-secondary" style="display: none; background: #343a40; margin-right: 10px; padding: 8px 14px;" onclick="openCouponModal()">🎟️ Manage Coupons</button>
+        <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
+        <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
+    </div>
+</div>
+
+<div class="filter-controls" id="filterBar">
+    <span class="filter-label">Filter Schedule:</span>
+    <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')">Show All</button>
+    <button class="filter-btn" id="filterBtn-large" onclick="applyLiveFilter('large')">Large Group Clinics</button>
+    <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
+</div>
+
+<div id="calendar"></div>
+
+<div class="calendar-footer-row">
+    <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink" target="_blank">✉ Contact Coach</a>
+    <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 View Operations Dashboard →</a>
+</div>
+
+<div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
+
+<div class="modal" id="loginModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3>Coach Authentication</h3>
+    <div class="input-group"><label>Username</label><input type="text" id="adminUser" value="coach"></div>
+    <div class="input-group">
+        <label>Password</label>
+        <div style="position: relative; display: flex; align-items: center;">
+            <input type="password" id="adminPass" style="padding-right: 40px;">
+            <span id="passwordToggleView" onclick="togglePasswordVisibility()" style="position: absolute; right: 10px; cursor: pointer; font-size: 16px; user-select: none;">👁️</span>
+        </div>
+    </div>
+    <button class="btn btn-primary" style="width: 100%; margin-top: 10px;" onclick="submitLogin()">Login</button>
+</div>
+
+<div class="modal" id="eventOverviewModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3 id="overviewTitle" style="margin-top:0;">Session Overview</h3>
+    
+    <div class="details-summary-box">
+        <div class="details-summary-row"><span class="details-summary-label">📍 Rink Location:</span><span class="details-summary-value" id="overviewLocation">-</span></div>
+        <div class="details-summary-row"><span class="details-summary-label">🗓️ Date & Time:</span><span class="details-summary-value" id="overviewTime">-</span></div>
+        <div class="details-summary-row"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
+        <div class="details-summary-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
+    </div>
+    
+    <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
+</div>
+
+<div class="modal" id="bookingModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3 id="modalTitle">Book Session</h3>
+    <p id="modalLocation" style="font-size: 13px; font-weight: bold; color: #0070ba; margin: -10px 0 5px 0;"></p>
+    <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
+    
+    <div id="parentFormFields">
+        <div class="input-group" id="accessCodeWrapper" style="display:none;">
+            <label style="color: #dc3545; font-weight: bold;">🔒 This is a Private Session. Enter Access Code *</label>
+            <input type="text" id="parentAccessCode" oninput="validateForm()" placeholder="Obtain passcode directly from Coach Ben">
+        </div>
+
+        <div class="input-group"><label>Parent/Guardian Full Name *</label><input type="text" id="parentName" oninput="validateForm()"></div>
+        <div class="input-group"><label>Parent Email *</label><input type="email" id="parentEmail" oninput="validateForm()"></div>
+        <div class="input-group"><label>Student / Player Name *</label><input type="text" id="playerName" oninput="validateForm()"></div>
+        
+        <div class="input-group">
+            <label>Promo / Coupon Code</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="couponCodeInput" placeholder="e.g., SAVE10" style="text-transform: uppercase;">
+                <button type="button" class="btn btn-secondary" onclick="applyCouponDiscount()" style="padding: 4px 12px; margin:0; font-size:12px;">Apply</button>
+            </div>
+            <span id="couponFeedback" style="font-size:12px; font-weight:bold; display:block; margin-top:4px;"></span>
+        </div>
+
+        <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
+        <div class="waiver-box">
+            <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
+            By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Ben Stadey Hockey Training (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant:<br><br>
+            <strong>1. Assumption of Risk</strong><br>
+            I understand that participation in hockey training and athletic activities involves inherent risks, including but not limited to: Falls, collisions, and contact with other participants; Injuries caused by pucks, sticks, boards, nets, or ice surfaces; Muscle strains, sprains, fractures, concussions, and other physical injuries; Risks associated with physical exertion and athletic conditioning. I voluntarily assume all risks associated with participation in these Programs.<br><br>
+            <strong>2. Medical Fitness</strong><br>
+            I certify that the participant is physically fit and able to participate in hockey-related activities. I understand it it my responsibility to consult with a physician regarding any medical concerns prior to participation. I agree to disclose any medical conditions, allergies, injuries, or limitations that may affect participation.<br><br>
+            <strong>3. Release of Liability</strong><br>
+            To the fullest extent permitted by law, I release, waive, and discharge Ben Stadey Hockey Training, its owners, coaches, trainers, employees, contractors, volunteers, affiliates, and facility operators from any and all claims, liabilities, damages, demands, costs, or causes of action arising out of or related to participation in the Programs, including injury, illness, property damage, or loss, except in cases of gross negligence or willful misconduct.<br><br>
+            <strong>4. Emergency Medical Treatment</strong><br>
+            In the event of an emergency, I authorize Ben Stadey Hockey Training and its representatives to obtain emergency medical treatment for the participant if I cannot be reached immediately. I understand that I am financially responsible for any medical expenses incurred.<br><br>
+            <strong>5. Equipment Responsibility</strong><br>
+            I understand that properly fitted hockey equipment is required for participation unless otherwise specified by the coach. I accept responsibility for ensuring the participant uses safe and appropriate equipment.<br><br>
+            <strong>6. Conduct & Safety</strong><br>
+            Participants are expected to behave respectfully and follow all coach instructions and facility rules. Ben Stadey Hockey Training reserves the right to remove any participant from a session for unsafe, disruptive, or inappropriate behavior without refund.<br><br>
+            <strong>7. Cancellation & Refund Policy</strong><br>
+            Sessions may be subject to cancellation or rescheduling due to weather, facility issues, illness, emergencies, or scheduling conflicts. Refunds, credits, and rescheduling policies are determined solely by Ben Stadey Hockey Training. By booking, I acknowledge and accept the posted cancellation policy.<br><br>
+            <strong>8. Photo & Video Release</strong><br>
+            I grant permission for photographs and videos taken during training sessions to be used by Ben Stadey Hockey Training for promotional, educational, and social media purposes unless I submit a written opt-out request prior to participation.<br><br>
+            <strong>9. Acknowledgment of Agreement</strong><br>
+            By checking the acknowledgment box during registration and proceeding with booking/payment, I confirm that: I am the parent/legal guardian of the participant, or I am 18 years of age or older; I have read and understand this waiver and release; I voluntarily agree to these terms; I understand that this agreement is legally binding.
+        </div>
+
+        <div class="waiver-checkbox-group">
+            <input type="checkbox" id="waiverCheckbox" onchange="validateForm()">
+            <label for="waiverCheckbox">I have read and agree to the Waiver & Release of Liability terms.</label>
+        </div>
+
+        <div id="paypal-button-wrapper">
+            <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please fill out all fields to unlock payment.')"></div>
+            <div id="paypal-button-container"></div>
+        </div>
+
+        <button id="freeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitBooking(null)">Complete Free Registration</button>
+        
+        <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
+    </div>
+
+    <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
+        <div style="background: #e2e8f0; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; gap:10px;">
+            <span style="font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; white-space: nowrap;">📢 Quick Share Link:</span>
+            <button class="btn" id="btnCopyQuickShare" style="background: #4a5568; color: white; padding: 5px 12px; font-size: 11px; margin:0; white-space: nowrap;" onclick="copyEventShareLinkToClipboard()">📋 Copy Link</button>
+        </div>
+
+        <div style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;">
+            <label style="font-size: 12px; font-weight: bold; color: #856404; text-transform: uppercase;">Set Max Roster Limit:</label>
+            <div style="display: flex; gap: 6px;">
+                <input type="number" id="customCapacityInput" style="width: 60px; padding: 4px; text-align: center; border: 1px solid #ccc; border-radius: 4px;" min="1">
+                <button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px; margin:0;" onclick="submitCustomCapacityOverride()">Update</button>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0070ba; padding-bottom: 4px; margin-bottom: 8px;">
+            <h4 id="activeRosterTitle" style="margin: 0; font-size: 14px; text-transform: uppercase; color: #0070ba;">Active Roster</h4>
+            <button id="exportCsvBtn" class="btn" style="background: #28a745; color: white; padding: 4px 10px; font-size: 11px; margin: 0; display: none;" onclick="exportCurrentRosterToCsv()">📥 Export to Excel/CSV</button>
+        </div>
+        <div id="activeRosterList" style="margin-bottom: 20px;"></div>
+
+        <h4 id="waitlistRosterTitle" style="margin-bottom: 8px; font-size: 14px; text-transform: uppercase; color: #666; border-bottom: 2px solid #ccc; padding-bottom: 4px;">Waitlist Position</h4>
+        <div id="waitlistRosterList" style="margin-bottom: 25px;"></div>
+
+        <div style="margin-top: 30px; background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 6px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #333; letter-spacing: 0.5px;">📢 Broadcast Update to Roster</h4>
+            <div class="input-group" style="margin-bottom: 8px;">
+                <input type="text" id="broadcastSubject" placeholder="Email Subject line Topic (e.g., Ice Time Delay)" style="padding: 6px; font-size: 13px;">
+            </div>
+            <div class="input-group" style="margin-bottom: 10px;">
+                <textarea id="broadcastMessage" placeholder="Type your notification message update here for families..." style="width: 100%; height: 70px; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical;"></textarea>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; width: auto; margin: 0;" onclick="submitRosterBroadcast()">Send Notification Email</button>
+            </div>
+        </div>
+    </div>
+
+    <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
+</div>
+
+<div class="modal" id="refundModal" style="max-width: 380px;">
+    <span class="close-btn" onclick="closeRefundModal()">&times;</span>
+    <h3 style="margin-top:0;">💸 Issue Refund</h3>
+    <p id="refundPlayerLabel" style="font-size:14px; color:#444; margin-bottom:16px;"></p>
+    <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:13px; color:#856404;">
+        ⚠️ This will issue a real PayPal refund immediately. The booking will be marked <strong>Refunded</strong> and removed from the active roster.
+    </div>
+    <div class="input-group">
+        <label style="font-size:13px;">Refund Amount (USD)</label>
+        <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:16px; font-weight:bold; color:#555;">$</span>
+            <input type="number" id="refundAmountInput" min="0.01" step="0.01" style="font-size:16px; font-weight:bold; width:100%; padding:8px;">
+        </div>
+        <span style="font-size:11px; color:#888; display:block; margin-top:4px;">Session price shown as default. Adjust for a partial refund.</span>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:18px;">
+        <button class="btn" style="flex:1; background:#6c757d; color:white;" onclick="closeRefundModal()">Cancel</button>
+        <button class="btn btn-danger" id="confirmRefundBtn" style="flex:1;" onclick="submitRefund()">Confirm & Refund</button>
+    </div>
+    <p id="refundStatusMsg" style="font-size:13px; text-align:center; margin-top:12px; font-weight:bold; display:none;"></p>
+</div>
+
+<div class="modal" id="createSlotModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3>Create New Training Time Slot</h3>
+    <div class="input-group"><label>Event Title</label><input type="text" id="newTitle" placeholder="e.g., Power Skating"></div>
+    <div class="input-group">
+        <label>Event Group Classification</label>
+        <select id="newEventType">
+            <option value="large">Large Group Skill Clinic (Max 25)</option>
+            <option value="small">Small Group Session (Max 6)</option>
+        </select>
+    </div>
+    <div class="input-group">
+        <label>Ice Rink Location *</label>
+        <select id="newLocation">
+            <option value="Sherwood Ice Arena">Sherwood Ice Arena</option>
+            <option value="Winterhawks Skating Center - Beaverton">Winterhawks Skating Center - Beaverton</option>
+            <option value="The Veterans Memorial Coliseum (VMC)">The Veterans Memorial Coliseum (VMC)</option>
+        </select>
+    </div>
+    <div class="input-group"><label>Access Code Restriction (Optional)</label><input type="text" id="newAccessCode" placeholder="Optional code"></div>
+    <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
+    <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
+    <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="45.00"></div>
+    <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
+</div>
+
+<div class="modal" id="couponManagerModal">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3>🎟️ Promo & Coupon Vault</h3>
+    <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+    <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 20px; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #eee;">
+        <div style="flex: 2;"><label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">CODE NAME</label><input type="text" id="newCouponCode" style="text-transform: uppercase; width:100%; padding:6px;"></div>
+        <div style="flex: 2;"><label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">TYPE</label><select id="newCouponType" style="width:100%; padding:6px; height:31px;"><option value="fixed">$ Fixed</option><option value="percent">% Percent</option></select></div>
+        <div style="flex: 1.5;"><label style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">VALUE</label><input type="number" id="newCouponValue" style="width:100%; padding:6px;"></div>
+        <button class="btn btn-primary" style="padding: 7px 15px; height: 31px;" onclick="submitCreateCoupon()">Add</button>
+    </div>
+    <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;"></div>
+</div>
+
+<script>
+    let calendar;
+    let selectedEvent = null;
+    let adminToken = localStorage.getItem('coach_admin_token'); 
+    let paypalActionsInstance = null;
+    let paypalScriptLoaded = false;
+    let currentSessionPrice = 0; 
+    let verifiedDiscountAmount = 0;
+    let currentRosterData = null;
+
+    const locationAddressMap = {
+        "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
+        "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
+        "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialType = urlParams.get('type') || 'all';
+        updateFilterButtonUI(initialType);
+        
+        if (adminToken) { applyCoachUIMode(true); }
+
+        const calendarEl = document.getElementById('calendar');
+        calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            selectable: true,
+            longPressDelay: 350,       
+            selectLongPressDelay: 350, 
+            
+            aspectRatio: window.innerWidth < 600 ? 0.8 : 1.35,
+            handleWindowResize: true,
+            windowResize: function(view) {
+                calendar.setOption('aspectRatio', window.innerWidth < 600 ? 0.8 : 1.35);
+            },
+
+            validRange: function(nowDate) {
+                return { start: nowDate, end: new Date(nowDate.valueOf()).setMonth(nowDate.getMonth() + 12) };
+            },
+            events: function(info, successCallback, failureCallback) {
+                const currentUrlParams = new URLSearchParams(window.location.search);
+                const filterType = currentUrlParams.get('type'); 
+
+                fetch('/api/sessions')
+                    .then(res => res.json())
+                    .then(data => {
+                        let filteredData = data;
+                        if (filterType && filterType !== 'all' && !adminToken) {
+                            filteredData = data.filter(session => session.event_type === filterType);
+                        }
+
+                        const events = filteredData.map(session => {
+                            const isSmallGroup = session.event_type === 'small';
+                            const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 6 : 25);
+                            const targetWaitlistCap = isSmallGroup ? 3 : 15;
+                            const isFull = session.active_count >= targetCap;
+                            const isLocked = session.access_code && session.access_code !== "";
+                            const titlePrefix = isLocked ? "🔒 " : "";
+
+                            return {
+                                id: session.id,
+                                title: `${titlePrefix}${session.title} (${session.active_count}/${targetCap})`,
+                                start: session.start_time,
+                                end: session.end_time,
+                                backgroundColor: isFull ? '#555555' : '#0070ba',
+                                borderColor: isFull ? '#444444' : '#005fa3',
+                                extendedProps: { 
+                                    activeCount: session.active_count, 
+                                    waitlistCount: session.waitlist_count, 
+                                    price: session.price,
+                                    access_code: session.access_code,
+                                    event_type: session.event_type,
+                                    maxActive: targetCap,
+                                    maxWaitlist: targetWaitlistCap,
+                                    custom_capacity: session.custom_capacity,
+                                    location: session.location
+                                }
+                            };
+                        });
+                        successCallback(events);
+                    });
+            },
+            eventClick: function(info) { handleEventSelectionSelection(info.event); },
+            select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } },
+            
+            datesSet: function() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const queryId = urlParams.get('session_id');
+                if (queryId) {
+                    setTimeout(() => {
+                        const targetedEvent = calendar.getEventById(queryId);
+                        if (targetedEvent) {
+                            const cleanUrl = new URL(window.location);
+                            cleanUrl.searchParams.delete('session_id');
+                            window.history.pushState({}, '', cleanUrl);
+                            
+                            handleEventSelectionSelection(targetedEvent);
+                        }
+                    }, 400);
+                }
+            }
+        });
+        calendar.render();
+    });
+
+    function applyLiveFilter(type) {
+        const url = new URL(window.location);
+        if (type === 'all') { url.searchParams.delete('type'); } else { url.searchParams.set('type', type); }
+        window.history.pushState({}, '', url);
+        updateFilterButtonUI(type);
+        if (calendar) calendar.refetchEvents();
+    }
+
+    function updateFilterButtonUI(activeType) {
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = document.getElementById(`filterBtn-${activeType}`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    function applyCouponDiscount() {
+        const code = document.getElementById('couponCodeInput').value.trim();
+        const feedback = document.getElementById('couponFeedback');
+        if(!code) return;
+
+        fetch('/api/validate-coupon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                let originalPrice = selectedEvent.extendedProps.price;
+                if(data.discount_type === 'fixed') { verifiedDiscountAmount = data.discount_value; } 
+                else if (data.discount_type === 'percent') { verifiedDiscountAmount = originalPrice * (data.discount_value / 100); }
+                
+                currentSessionPrice = Math.max(0, originalPrice - verifiedDiscountAmount);
+                feedback.style.color = 'green';
+                feedback.innerText = `Coupon applied! Saved $${verifiedDiscountAmount.toFixed(2)}. New total: $${currentSessionPrice.toFixed(2)}`;
+                validateForm(); 
+            } else {
+                feedback.style.color = 'red';
+                feedback.innerText = data.error || "Invalid coupon code.";
+                verifiedDiscountAmount = 0;
+                currentSessionPrice = selectedEvent.extendedProps.price;
+                validateForm();
+            }
+        });
+    }
+
+    function validateForm() {
+        if (adminToken) return;
+        const parentName = document.getElementById('parentName').value.trim();
+        const parentEmail = document.getElementById('parentEmail').value.trim();
+        const playerName = document.getElementById('playerName').value.trim();
+        const waiverChecked = document.getElementById('waiverCheckbox').checked;
+
+        let accessPasses = true;
+        if (selectedEvent && selectedEvent.extendedProps.access_code) {
+            const inputCode = document.getElementById('parentAccessCode').value.trim();
+            accessPasses = (inputCode === selectedEvent.extendedProps.access_code);
+        }
+
+        const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
+        document.getElementById('waitlistBtn').disabled = !isFormValid;
+
+        if (currentSessionPrice <= 0 && selectedEvent && selectedEvent.extendedProps.activeCount < selectedEvent.extendedProps.maxActive) {
+            document.getElementById('paypal-button-wrapper').style.display = 'none';
+            document.getElementById('freeSubmitBtn').style.display = isFormValid ? 'block' : 'none';
+            document.getElementById('freeSubmitBtn').disabled = !isFormValid;
+        } else {
+            document.getElementById('freeSubmitBtn').style.display = 'none';
+            if (selectedEvent && selectedEvent.extendedProps.activeCount >= selectedEvent.extendedProps.maxActive) {
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
+            } else {
+                document.getElementById('paypal-button-wrapper').style.display = 'block';
+            }
+
+            if (isFormValid) {
+                document.getElementById('paypalDisabledOverlay').style.display = 'none';
+                if (paypalActionsInstance) paypalActionsInstance.enable();
+            } else {
+                document.getElementById('paypalDisabledOverlay').style.display = 'block';
+                if (paypalActionsInstance) paypalActionsInstance.disable();
+            }
+        }
+    }
+
+    function handleEventSelectionSelection(event) {
+        selectedEvent = event;
+        const props = event.extendedProps;
+        
+        if (adminToken) {
+            openBookingModal(event);
+            return;
+        }
+
+        document.getElementById('overviewTitle').innerText = event.title.split('(')[0].trim();
+        
+        const venueName = props.location || "Location Unassigned";
+        const physicalAddress = locationAddressMap[venueName] ? ` (${locationAddressMap[venueName]})` : "";
+        document.getElementById('overviewLocation').innerText = `${venueName}${physicalAddress}`;
+        
+        const parsedDate = new Date(event.start);
+        document.getElementById('overviewTime').innerText = parsedDate.toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
+        
+        document.getElementById('overviewStatus').innerText = `Active: ${props.activeCount}/${props.maxActive} Spots Taken`;
+        document.getElementById('overviewPrice').innerText = props.price > 0 ? `$${props.price.toFixed(2)}` : "Free / Waitlist Entry";
+
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('eventOverviewModal').style.display = 'block';
+    }
+
+    function advanceFromOverviewToForm() {
+        document.getElementById('eventOverviewModal').style.display = 'none';
+        openBookingModal(selectedEvent);
+    }
+
+    function openBookingModal(event) {
+        selectedEvent = event;
+        const props = event.extendedProps;
+        document.getElementById('modalTitle').innerText = event.title;
+        
+        const solvedVenueName = props.location || "Location Unassigned";
+        const solvedAddressText = locationAddressMap[solvedVenueName] ? ` (${locationAddressMap[solvedVenueName]})` : "";
+        document.getElementById('modalLocation').innerText = `📍 ${solvedVenueName}${solvedAddressText}`;
+
+        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
+
+        document.getElementById('parentName').value = "";
+        document.getElementById('parentEmail').value = "";
+        document.getElementById('playerName').value = "";
+        document.getElementById('waiverCheckbox').checked = false;
+        document.getElementById('couponCodeInput').value = "";
+        document.getElementById('couponFeedback').innerText = "";
+        document.getElementById('broadcastSubject').value = "";
+        document.getElementById('broadcastMessage').value = "";
+        verifiedDiscountAmount = 0;
+        currentSessionPrice = props.price;
+
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('bookingModal').style.display = 'block';
+
+        if (adminToken) {
+            document.getElementById('parentFormFields').style.display = 'none';
+            document.getElementById('deleteSessionBtn').style.display = 'block';
+            document.getElementById('coachRosterPanel').style.display = 'block';
+            document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
+            document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
+            document.getElementById('customCapacityInput').value = props.custom_capacity || props.maxActive;
+            
+            document.getElementById('btnCopyQuickShare').innerText = "📋 Copy Link";
+            
+            loadActiveRosterDashboard(event.id);
+        } else {
+            document.getElementById('parentFormFields').style.display = 'block';
+            document.getElementById('deleteSessionBtn').style.none;
+            document.getElementById('coachRosterPanel').style.none;
+            
+            if (props.access_code && props.access_code !== "") {
+                document.getElementById('accessCodeWrapper').style.display = 'block';
+                document.getElementById('parentAccessCode').value = "";
+            } else {
+                document.getElementById('accessCodeWrapper').style.display = 'none';
+            }
+
+            if (props.activeCount >= props.maxActive) {
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
+                document.getElementById('waitlistBtn').style.display = 'block';
+            } else {
+                injectPayPalScriptDynamic();
+            }
+        }
+        validateForm();
+    }
+
+    function injectPayPalScriptDynamic() {
+        if (paypalScriptLoaded) {
+            document.getElementById('paypal-button-wrapper').style.display = 'block';
+            return;
+        }
+        
+        fetch('/api/config/paypal-client-id')
+            .then(res => res.json())
+            .then(config => {
+                const script = document.createElement('script');
+                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                script.onload = () => {
+                    paypalScriptLoaded = true;
+                    document.getElementById('paypal-button-wrapper').style.display = 'block';
+                    initializePayPalButtons();
+                };
+                document.body.appendChild(script);
+            })
+            .catch(err => console.error("CRITICAL: Failed to stream configuration keys from system backend environments."));
+    }
+
+    function copyEventShareLinkToClipboard() {
+        if (!selectedEvent) return;
+        
+        const targetUrl = `${window.location.origin}${window.location.pathname}?session_id=${selectedEvent.id}`;
+        
+        navigator.clipboard.writeText(targetUrl)
+            .then(() => {
+                const btn = document.getElementById('btnCopyQuickShare');
+                btn.innerText = "✓ Link Copied!";
+                setTimeout(() => { btn.innerText = "📋 Copy Link"; }, 2000);
+            })
+            .catch(() => {
+                alert(`Unable to copy automatically. Share this text path manually:\n\n${targetUrl}`);
+            });
+    }
+
+    function initializePayPalButtons() {
+        if (!window.paypal) return;
+        
+        document.getElementById('paypal-button-container').innerHTML = '';
+        
+        paypal.Buttons({
+            onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
+            onClick: function() { validateForm(); },
+            createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
+            onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
+            onError: function(err) {
+                console.error("PayPal Smart Button Exception Matrix:", err);
+                
+                fetch('/api/errors/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event_type: 'PAYPAL_CHECKOUT_BLOCK',
+                        message: `Checkout dropped for event "${selectedEvent ? selectedEvent.title : 'Unknown'}"`,
+                        metadata: { error_string: err.toString(), location: window.location.href }
+                    })
+                }).catch(telemetryErr => console.warn("Log pipeline unreachable:", telemetryErr));
+
+                alert("⚠️ Registration Payment Gateway Temporarily Offline:\n\nWe encountered an issue with the payment processor engine. Coach Ben has been notified automatically. Your roster spot has not been altered—please try checking out again shortly!");
+            }
+        }).render('#paypal-button-container');
+    }
+
+    function submitBooking(orderId) {
+        const finalOrderId = (currentSessionPrice <= 0) ? 'WAIVED_FREE' : orderId;
+
+        const payload = {
+            session_id: selectedEvent.id,
+            player_name: document.getElementById('playerName').value.trim(),
+            parent_email: document.getElementById('parentEmail').value.trim(),
+            parent_name: document.getElementById('parentName').value.trim(),
+            paypal_order_id: finalOrderId
+        };
+
+        fetch('/api/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(res => res.json()).then(data => {
+            alert(data.status === 'active' ? 'Spot confirmed!' : 'Player placed on waitlist.');
+            closeAllModals();
+            calendar.refetchEvents();
+        });
+    }
+
+    function submitWaitlist() { submitBooking(null); }
+    
+    function openCreateSlotModal(dateStr) {
+        document.getElementById('newStart').value = `${dateStr}T17:00`;
+        document.getElementById('newEnd').value = `${dateStr}T18:30`;
+        document.getElementById('newLocation').selectedIndex = 0; 
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('createSlotModal').style.display = 'block';
+    }
+    
+    function submitCreateSlot() {
+        const payload = {
+            token: adminToken,
+            title: document.getElementById('newTitle').value || "Skills Session",
+            event_type: document.getElementById('newEventType').value,
+            location: document.getElementById('newLocation').value, 
+            access_code: document.getElementById('newAccessCode').value,
+            start_time: document.getElementById('newStart').value,
+            end_time: document.getElementById('newEnd').value,
+            price: parseFloat(document.getElementById('newPrice').value)
+        };
+        fetch('/api/admin/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+    }
+
+    function submitCustomCapacityOverride() {
+        const capVal = document.getElementById('customCapacityInput').value;
+        if (!capVal || capVal < 1) return;
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/capacity`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, custom_capacity: capVal })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert("Session maximum roster bounds updated.");
+                closeAllModals();
+                calendar.refetchEvents();
+            }
+        });
+    }
+    
+    function deleteCurrentSession() {
+        if(!confirm("Permanently cancel this session?")) return;
+        fetch(`/api/admin/sessions/${selectedEvent.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+    }
+
+    function openCouponModal() {
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('couponManagerModal').style.display = 'block';
+        loadCouponVaultList();
+    }
+
+    function loadCouponVaultList() {
+        const wrapper = document.getElementById('couponListWrapper');
+        wrapper.innerHTML = `<p style='padding:15px; text-align:center;'>Reading vault...</p>`;
+
+        fetch('/api/admin/coupons/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(coupons => {
+            if(coupons.length === 0) { wrapper.innerHTML = `<p style='padding:15px; text-align:center;'>No codes found.</p>`; return; }
+            let html = `<table style='width:100%; border-collapse:collapse; font-size:13px;'>`;
+            coupons.forEach(c => {
+                const sym = c.discount_type === 'fixed' ? '$' : '%';
+                html += `<tr style='border-bottom:1px solid #eee; height:35px;'>
+                    <td style='padding:8px; font-weight:bold;'>${c.code}</td>
+                    <td style='padding:8px;'>${c.discount_value}${sym}</td>
+                    <td style='text-align:center;'><button class='btn btn-danger' style='padding:2px 6px; font-size:11px;' onclick='deleteCouponFromVault(${c.id})'>Revoke</button></td>
+                </tr>`;
+            });
+            html += `</table>`;
+            wrapper.innerHTML = html;
+        });
+    }
+
+    function submitCreateCoupon() {
+        const code = document.getElementById('newCouponCode').value;
+        const type = document.getElementById('newCouponType').value;
+        const val = document.getElementById('newCouponValue').value;
+        if(!code || !val) return;
+
+        fetch('/api/admin/coupons/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, code: code, discount_type: type, discount_value: val })
+        }).then(res => res.json()).then(() => { document.getElementById('newCouponCode').value = ''; document.getElementById('newCouponValue').value = ''; loadCouponVaultList(); });
+    }
+
+    function deleteCouponFromVault(id) {
+        fetch(`/api/admin/coupons/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => loadCouponVaultList());
+    }
+
+    function loadActiveRosterDashboard(sessionId) {
+        const activeDiv = document.getElementById('activeRosterList');
+        const waitDiv = document.getElementById('waitlistRosterList');
+
+        fetch(`/api/admin/sessions/${sessionId}/roster`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            currentRosterData = data; 
+            const csvBtn = document.getElementById('exportCsvBtn');
+            if (csvBtn) {
+                csvBtn.style.display = (data.active.length > 0 || data.waitlist.length > 0) ? 'inline-block' : 'none';
+            }
+
+            if (data.active.length === 0) { activeDiv.innerHTML = `<p style='font-style:italic; padding:8px;'>Roster empty.</p>`; } 
+            else {
+                let html = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
+                data.active.forEach((p, index) => {
+                    const hasPayment = p.paypal_order_id && p.paypal_order_id !== 'WAITLIST_FREE' && p.paypal_order_id !== 'WAIVED_FREE' && !p.paypal_order_id.startsWith('REFUNDED:');
+                    const refundBtn = hasPayment
+                        ? `<button class='btn' style='background:#17a2b8; color:white; padding:3px 6px; font-size:10px;' onclick='openRefundModal(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}", ${selectedEvent.extendedProps.price})'>Refund</button>`
+                        : '';
+                    html += `<tr style='border-bottom:1px solid #eee; height:35px;'>
+                        <td>${index + 1}. <b>${p.player_name}</b></td>
+                        <td style='text-align:right;'>
+                            ${refundBtn}
+                            <button class='btn' style='background:#ffc107; padding:3px 6px; font-size:10px;' onclick='demotePlayerToWaitlist(${p.id})'>Waitlist</button>
+                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
+                        </td>
+                    </tr>`;
+                });
+                activeDiv.innerHTML = html + `</table>`;
+            }
+
+            if (data.waitlist.length === 0) { waitDiv.innerHTML = `<p style='font-style:italic; padding:8px;'>Waitlist empty.</p>`; } 
+            else {
+                let html = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
+                data.waitlist.forEach((p, index) => {
+                    const isPending = p.status === 'pending_payment';
+                    let statusLabel = `W${index + 1}`;
+                    let rowStyle = "";
+                    
+                    if (isPending) {
+                        statusLabel = `⏳ HOLD`;
+                        rowStyle = "background: #fff3cd;";
+                    }
+
+                    html += `<tr style='border-bottom:1px solid #eee; height:40px; ${rowStyle}'>
+                        <td style='padding:4px 8px;'>
+                            <span style='font-weight:bold; font-size:11px; display:inline-block; width:50px;'>${statusLabel}</span>
+                            <b>${p.player_name}</b>
+                            ${isPending ? `<br><span style='color:#856404; font-size:10px; font-style:italic;'>Notified. Awaiting payment checkout.</span>` : ''}
+                        </td>
+                        <td style='text-align:right; padding-right:8px; white-space:nowrap;'>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, -1)'>▲</button>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, 1)'>▼</button>
+                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px; margin-left:4px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
+                        </td>
+                    </tr>`;
+                });
+                waitDiv.innerHTML = html + `</table>`;
+            }
+        });
+    }
+
+    function shiftQueueOrder(currentIndex, directionalShift) {
+        const targetIndex = currentIndex + directionalShift;
+        if (targetIndex < 0 || targetIndex >= currentRosterData.waitlist.length) return;
+
+        const temp = currentRosterData.waitlist[currentIndex];
+        currentRosterData.waitlist[currentIndex] = currentRosterData.waitlist[targetIndex];
+        currentRosterData.waitlist[targetIndex] = temp;
+
+        const orderedIds = currentRosterData.waitlist.map(player => player.id);
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/reorder-waitlist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, ordered_ids: orderedIds })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                loadActiveRosterDashboard(selectedEvent.id);
+            }
+        });
+    }
+
+    function removePlayerFromRoster(bookingId) {
+        if (!confirm("Remove player?")) return;
+        fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
+    }
+
+    function demotePlayerToWaitlist(bookingId) {
+        fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
+    }
+
+    function exportCurrentRosterToCsv() {
+        if (!currentRosterData || (!currentRosterData.active.length && !currentRosterData.waitlist.length)) {
+            alert("No rosters available to export.");
+            return;
+        }
+
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Position,Status,Player Name,Parent Name,Parent Email\n";
+
+        currentRosterData.active.forEach((p, idx) => {
+            const player = `"${p.player_name.replace(/"/g, '""')}"`;
+            const parent = `"${p.parent_name.replace(/"/g, '""')}"`;
+            const email = `"${p.parent_email.replace(/"/g, '""')}"`;
+            csvContent += `${idx + 1},Active,${player},${parent},${email}\n`;
+        });
+
+        currentRosterData.waitlist.forEach((p, idx) => {
+            const player = `"${p.player_name.replace(/"/g, '""')}"`;
+            const parent = `"${p.parent_name.replace(/"/g, '""')}"`;
+            const email = `"${p.parent_email.replace(/"/g, '""')}"`;
+            csvContent += `W${idx + 1},${p.status},${player},${parent},${email}\n`;
+        });
+
+        const rawTitle = selectedEvent ? selectedEvent.title.split('(')[0].trim() : "Hockey_Roster";
+        const cleanTitle = rawTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const fileName = `${cleanTitle}_roster.csv`;
+
+        const encodedUri = encodeURI(csvContent);
+        const downloadLink = document.createElement("a");
+        downloadLink.setAttribute("href", encodedUri);
+        downloadLink.setAttribute("download", fileName);
+        document.body.appendChild(downloadLink);
+        
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    }
+
+    function submitRosterBroadcast() {
+        const subject = document.getElementById('broadcastSubject').value.trim();
+        const message = document.getElementById('broadcastMessage').value.trim();
+
+        if (!subject || !message) {
+            alert("Please complete both fields before sending.");
+            return;
+        }
+
+        if (!confirm("Broadcast this email update to the full roster immediately?")) return;
+
+        const sendBtn = event.target;
+        const originalBtnText = sendBtn.innerText;
+        sendBtn.innerText = "Sending...";
+        sendBtn.disabled = true;
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/broadcast`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, subject: subject, message: message })
+        })
+        .then(res => res.json())
+        .then(data => {
+            sendBtn.innerText = originalBtnText;
+            sendBtn.disabled = false;
+
+            if (data.success) {
+                alert(data.message);
+                document.getElementById('broadcastSubject').value = "";
+                document.getElementById('broadcastMessage').value = "";
+            } else { alert(data.error || "Broadcast error."); }
+        })
+        .catch(() => {
+            sendBtn.innerText = originalBtnText;
+            sendBtn.disabled = false;
+            alert("Network link error.");
+        });
+    }
+
+    function applyCoachUIMode(isActive) {
+        if (isActive) {
+            document.body.style.backgroundColor = '#fef9e7'; 
+            document.getElementById('adminBadge').style.display = 'inline-block';
+            document.getElementById('authBtn').innerText = "Logout";
+            document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
+            document.getElementById('contactCoachLink').style.display = 'none'; 
+            document.getElementById('filterBar').style.display = 'none';
+            document.getElementById('linkOpsDashboard').style.display = 'inline-block'; 
+        } else {
+            document.body.style.backgroundColor = '#f8f9fa'; 
+            document.getElementById('adminBadge').style.display = 'none';
+            document.getElementById('authBtn').innerText = "Coach Portal";
+            document.getElementById('manageCouponsBtn').style.display = 'none'; 
+            document.getElementById('contactCoachLink').style.display = 'inline-block'; 
+            document.getElementById('filterBar').style.display = 'flex';
+            document.getElementById('linkOpsDashboard').style.display = 'none'; 
+        }
+    }
+
+    function togglePasswordVisibility() {
+        const passInput = document.getElementById('adminPass');
+        const toggleIcon = document.getElementById('passwordToggleView');
+        if (passInput.type === 'password') { passInput.type = 'text'; toggleIcon.innerText = '🙈'; } 
+        else { passInput.type = 'password'; toggleIcon.innerText = '👁️'; }
+    }
+
+    function toggleAuthField() {
+        if(adminToken) {
+            adminToken = null;
+            localStorage.removeItem('coach_admin_token'); 
+            applyCoachUIMode(false);
+            alert("Logged out.");
+            calendar.refetchEvents(); 
+        } else {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('loginModal').style.display = 'block';
+        }
+    }
+    
+    function submitLogin() {
+        fetch('/api/admin/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                adminToken = data.token;
+                localStorage.setItem('coach_admin_token', data.token); 
+                applyCoachUIMode(true);
+                closeAllModals();
+                calendar.refetchEvents(); 
+            } else { alert("Authorization failed."); }
+        });
+    }
+    
+    // ── Refund Modal ──────────────────────────────────────────────────────────
+    let refundTargetBookingId = null;
+
+    function openRefundModal(bookingId, playerName, sessionPrice) {
+        refundTargetBookingId = bookingId;
+        document.getElementById('refundPlayerLabel').innerText = `Player: ${playerName}`;
+        document.getElementById('refundAmountInput').value = parseFloat(sessionPrice).toFixed(2);
+        document.getElementById('refundAmountInput').max = parseFloat(sessionPrice).toFixed(2);
+        document.getElementById('refundStatusMsg').style.display = 'none';
+        document.getElementById('refundStatusMsg').innerText = '';
+        document.getElementById('confirmRefundBtn').disabled = false;
+        document.getElementById('confirmRefundBtn').innerText = 'Confirm & Refund';
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('refundModal').style.display = 'block';
+    }
+
+    function closeRefundModal() {
+        refundTargetBookingId = null;
+        document.getElementById('refundModal').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+    }
+
+    function submitRefund() {
+        const amount = parseFloat(document.getElementById('refundAmountInput').value);
+        if (!amount || amount <= 0) {
+            alert("Please enter a valid refund amount.");
+            return;
+        }
+
+        const btn = document.getElementById('confirmRefundBtn');
+        const statusMsg = document.getElementById('refundStatusMsg');
+        btn.disabled = true;
+        btn.innerText = 'Processing…';
+        statusMsg.style.display = 'none';
+
+        fetch(`/api/admin/bookings/${refundTargetBookingId}/refund`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken, refund_amount: amount.toFixed(2) })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusMsg.style.color = '#28a745';
+                statusMsg.innerText = `✓ ${data.message}`;
+                statusMsg.style.display = 'block';
+                btn.innerText = 'Refund Issued';
+
+                // Refresh the roster so the refunded player disappears from active list
+                setTimeout(() => {
+                    closeRefundModal();
+                    loadActiveRosterDashboard(selectedEvent.id);
+                    calendar.refetchEvents();
+                }, 1800);
+            } else {
+                statusMsg.style.color = '#dc3545';
+                statusMsg.innerText = `✗ ${data.error || 'Refund failed. Check PayPal dashboard.'}`;
+                statusMsg.style.display = 'block';
+                btn.disabled = false;
+                btn.innerText = 'Confirm & Refund';
+            }
+        })
+        .catch(() => {
+            statusMsg.style.color = '#dc3545';
+            statusMsg.innerText = '✗ Network error. Please try again.';
+            statusMsg.style.display = 'block';
+            btn.disabled = false;
+            btn.innerText = 'Confirm & Refund';
+        });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function closeAllModals() {
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('eventOverviewModal').style.display = 'none';
+        document.getElementById('bookingModal').style.display = 'none';
+        document.getElementById('createSlotModal').style.display = 'none';
+        document.getElementById('couponManagerModal').style.display = 'none';
+        document.getElementById('refundModal').style.display = 'none';
+        refundTargetBookingId = null;
+        
+        const passInput = document.getElementById('adminPass');
+        const toggleIcon = document.getElementById('passwordToggleView');
+        if (passInput) { passInput.type = 'password'; passInput.value = ''; }
+        if (toggleIcon) { toggleIcon.innerText = '👁️'; }
+    }
+</script>
+</body>
+</html>
