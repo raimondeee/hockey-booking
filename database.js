@@ -15,7 +15,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 db.serialize(() => {
-    // 1. Master Sessions Table Configuration
+    // 1. Master Sessions Table Configuration (Updated to include location tracking field)
     db.run(`CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -25,6 +25,7 @@ db.serialize(() => {
         event_type TEXT DEFAULT 'large',
         access_code TEXT DEFAULT NULL,
         custom_capacity INTEGER DEFAULT NULL,
+        location TEXT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -62,10 +63,17 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Safe background migrations
+    // ==========================================
+    // SAFE LIVE DATABASE MIGRATIONS
+    // ==========================================
     db.run(`ALTER TABLE sessions ADD COLUMN custom_capacity INTEGER DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN queue_position INTEGER DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN invitation_sent_at TEXT DEFAULT NULL`, (err) => {});
+    
+    // NEW MIGRATION: Appends the location text column to existing production records safely
+    db.run(`ALTER TABLE sessions ADD COLUMN location TEXT DEFAULT NULL`, (err) => {
+        // Silently swallow errors if column already exists from previous startups
+    });
 });
 
 module.exports = db;

@@ -12,10 +12,10 @@
         
         .alert-banner { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 12px 15px; border-radius: 4px; font-size: 13px; font-weight: bold; margin-bottom: 20px; line-height: 1.4; }
         .details-list { background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
-        .details-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 6px; }
+        .details-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 6px; line-height: 1.4; }
         .details-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
-        .details-label { color: #64748b; font-weight: bold; }
-        .details-value { font-weight: bold; color: #1e293b; }
+        .details-label { color: #64748b; font-weight: bold; min-width: 120px; }
+        .details-value { font-weight: bold; color: #1e293b; text-align: right; }
 
         .waiver-box { background: #f8fafc; border: 1px solid #cbd5e1; height: 120px; overflow-y: scroll; padding: 10px; font-size: 11px; color: #475569; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; line-height: 1.4; }
         .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 20px; font-size: 13px; font-weight: bold; }
@@ -51,6 +51,8 @@
         <div class="details-list">
             <div class="details-row"><span class="details-label">Training Session:</span><span class="details-value" id="lblSessionTitle">-</span></div>
             <div class="details-row"><span class="details-label">Date & Time:</span><span class="details-value" id="lblSessionTime">-</span></div>
+            <!-- Expanded UI display container for physical location rendering tracking maps -->
+            <div class="details-row" id="lblLocationRow"><span class="details-label">Rink Location:</span><span class="details-value" id="lblSessionLocation">-</span></div>
             <div class="details-row"><span class="details-label">Registered Player:</span><span class="details-value" id="lblPlayerName">-</span></div>
             <div class="details-row"><span class="details-label">Parent/Guardian:</span><span class="details-value" id="lblParentName">-</span></div>
             <div class="details-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-label" style="color:#0070ba; font-size:15px;">Total Balance Due:</span><span class="details-value" style="color:#28a745; font-size:16px;" id="lblPrice">$0.00</span></div>
@@ -97,6 +99,13 @@
     let targetRecordData = null;
     let paypalActionsInstance = null;
 
+    // Master dictionary address lookup configurations 
+    const locationAddressMap = {
+        "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
+        "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
+        "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
+    };
+
     document.addEventListener('DOMContentLoaded', function() {
         if (!bookingId) {
             showScreen('errorPanel');
@@ -131,9 +140,16 @@
 
     function renderFormDetails() {
         document.getElementById('lblSessionTitle').innerText = targetRecordData.title;
+        
         // Format the date string cleanly
         const parsedDate = new Date(targetRecordData.start_time);
         document.getElementById('lblSessionTime').innerText = parsedDate.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
+        
+        // Match incoming location parameter payload strings against address maps cleanly
+        const venueName = targetRecordData.location || "Location Unassigned";
+        const physicalAddress = locationAddressMap[venueName] ? `\n(${locationAddressMap[venueName]})` : "";
+        document.getElementById('lblSessionLocation').innerText = `${venueName}${physicalAddress}`;
+
         document.getElementById('lblPlayerName').innerText = targetRecordData.player_name;
         document.getElementById('lblParentName').innerText = targetRecordData.parent_name;
         document.getElementById('lblPrice').innerText = `$${targetRecordData.price.toFixed(2)}`;
@@ -191,7 +207,7 @@
             parent_email: targetRecordData.parent_email,
             parent_name: targetRecordData.parent_name,
             paypal_order_id: paypalOrderId,
-            existing_booking_id: targetRecordData.booking_id // Pass original database row index
+            existing_booking_id: targetRecordData.booking_id 
         };
 
         fetch('/api/book', {

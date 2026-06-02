@@ -17,12 +17,16 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 // Initialize the secure email engine transporter map configuration
 const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: 465,
-    secure: true, 
+    host: 'smtp.office365.com', // Updated to GoDaddy/Microsoft 365
+    port: 587,                  // Secure submission port for Microsoft 365
+    secure: false,              // Must be false for port 587 (uses STARTTLS)
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
+    },
+    tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false
     }
 });
 
@@ -79,7 +83,7 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
-// 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers
+// 1. Public: Get all scheduled sessions alongside dynamic active and waitlist numbers (Updated to fetch location data)
 app.get('/api/sessions', (req, res) => {
     // Run the expiration logic sweep right before sending schedule updates to ensure client view precision
     runExpiredReservationsSweep(() => {
@@ -193,12 +197,12 @@ app.post('/api/book', async (req, res) => {
     });
 });
 
-// 3b. Public Landing Page Endpoint: Look up details for a player claiming an open spot
+// 3b. Public Landing Page Endpoint: Look up details for a player claiming an open spot (Updated to include s.location)
 app.post('/api/claim-spot/lookup', (req, res) => {
     const { booking_id } = req.body;
     const query = `
         SELECT b.id as booking_id, b.player_name, b.parent_name, b.parent_email, b.status,
-               s.id as session_id, s.title, s.start_time, s.price
+               s.id as session_id, s.title, s.start_time, s.price, s.location
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.id = ? AND b.status = 'pending_payment'`;
@@ -229,11 +233,11 @@ function verifyAdminToken(req, res, next) {
     } catch (err) { return res.status(401).json({ error: "Your portal login session has expired." }); }
 }
 
-// 5. Admin Portal: Create an empty calendar slot
+// 5. Admin Portal: Create an empty calendar slot (Updated to ingest location)
 app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
-    const { title, start_time, end_time, price, event_type, access_code } = req.body; 
-    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code) VALUES (?, ?, ?, ?, ?, ?)`;
-    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null], function(err) {
+    const { title, start_time, end_time, price, event_type, access_code, location } = req.body; 
+    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null, location || null], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id: this.lastID });
     });
@@ -362,14 +366,14 @@ app.post('/api/admin/blacklist/list', verifyAdminToken, (req, res) => {
     });
 });
 
-// 15. Admin Portal: Send a global broadcast email to everyone registered for a specific session slot
+// 15. Admin Portal: Send a global broadcast email to everyone registered for a specific session slot (Updated template to include location context)
 app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
     const { subject, message } = req.body;
 
     if (!subject || !message) return res.status(400).json({ error: "Missing required properties: subject or message." });
 
-    db.get(`SELECT title FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
+    db.get(`SELECT title, location FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
         if (err || !session) return res.status(400).json({ error: "Target training session not found." });
 
         db.all(`SELECT DISTINCT parent_email FROM bookings WHERE session_id = ?`, [sessionId], (err, rows) => {
@@ -377,12 +381,14 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             if (rows.length === 0) return res.json({ success: true, message: "Broadcast skipped. Roster empty." });
 
             const emailList = rows.map(r => r.parent_email);
+            const locationContext = session.location ? `\n📍 Location: ${session.location}` : "";
+            
             const mailOptions = {
                 from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
                 to: process.env.EMAIL_USER, 
                 bcc: emailList, 
                 subject: `[SCHEDULE UPDATE] ${session.title} - ${subject}`,
-                text: `${message}\n\n---\nDo not reply directly to this automated blast. For any further coordination inquiries, reach out to Ben directly at ben@benstadeyhockey.com.`
+                text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nDo not reply directly to this automated blast. For any further coordination inquiries, reach out to Ben directly at ben@benstadeyhockey.com.`
             };
 
             transporter.sendMail(mailOptions, (mailErr) => {

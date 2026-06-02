@@ -48,7 +48,6 @@
             border-radius: 8px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
             box-sizing: border-box;
-            /* Prevents calendar rows from being tightly cropped on mobile screens */
             min-height: 500px;
         }
 
@@ -158,7 +157,7 @@
 <div id="calendar"></div>
 
 <div class="calendar-footer-row">
-    <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink">✉ Contact Coach</a>
+    <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink" target="_blank">✉ Contact Coach</a>
     <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 View Operations Dashboard →</a>
 </div>
 
@@ -181,6 +180,7 @@
 <div class="modal" id="bookingModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3 id="modalTitle">Book Session</h3>
+    <p id="modalLocation" style="font-size: 13px; font-weight: bold; color: #0070ba; margin: -10px 0 5px 0;"></p>
     <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
     
     <div id="parentFormFields">
@@ -287,6 +287,14 @@
             <option value="small">Small Group Session (Max 6)</option>
         </select>
     </div>
+    <div class="input-group">
+        <label>Ice Rink Location *</label>
+        <select id="newLocation">
+            <option value="Sherwood Ice Arena">Sherwood Ice Arena</option>
+            <option value="Winterhawks Skating Center - Beaverton">Winterhawks Skating Center - Beaverton</option>
+            <option value="The Veterans Memorial Coliseum (VMC)">The Veterans Memorial Coliseum (VMC)</option>
+        </select>
+    </div>
     <div class="input-group"><label>Access Code Restriction (Optional)</label><input type="text" id="newAccessCode" placeholder="Optional code"></div>
     <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
     <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
@@ -319,6 +327,13 @@
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
 
+    // Master dictionary map containing detailed address data models
+    const locationAddressMap = {
+        "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
+        "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
+        "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
+    };
+
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
         const initialType = urlParams.get('type') || 'all';
@@ -333,7 +348,6 @@
             longPressDelay: 350,       
             selectLongPressDelay: 350, 
             
-            // Dynamic display ratio mapping logic to expand mobile grid rows
             aspectRatio: window.innerWidth < 600 ? 0.8 : 1.35,
             handleWindowResize: true,
             windowResize: function(view) {
@@ -378,7 +392,8 @@
                                     event_type: session.event_type,
                                     maxActive: targetCap,
                                     maxWaitlist: targetWaitlistCap,
-                                    custom_capacity: session.custom_capacity
+                                    custom_capacity: session.custom_capacity,
+                                    location: session.location
                                 }
                             };
                         });
@@ -478,6 +493,12 @@
         selectedEvent = event;
         const props = event.extendedProps;
         document.getElementById('modalTitle').innerText = event.title;
+        
+        // Dynamically resolve target text string arrays using the address lookup map dictionaries
+        const solvedVenueName = props.location || "Location Unassigned";
+        const solvedAddressText = locationAddressMap[solvedVenueName] ? ` (${locationAddressMap[solvedVenueName]})` : "";
+        document.getElementById('modalLocation').innerText = `📍 ${solvedVenueName}${solvedAddressText}`;
+
         document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
 
         document.getElementById('parentName').value = "";
@@ -559,6 +580,7 @@
     function openCreateSlotModal(dateStr) {
         document.getElementById('newStart').value = `${dateStr}T17:00`;
         document.getElementById('newEnd').value = `${dateStr}T18:30`;
+        document.getElementById('newLocation').selectedIndex = 0; // Reset arena selector indexes
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
     }
@@ -568,6 +590,7 @@
             token: adminToken,
             title: document.getElementById('newTitle').value || "Skills Session",
             event_type: document.getElementById('newEventType').value,
+            location: document.getElementById('newLocation').value, // Package selector context values
             access_code: document.getElementById('newAccessCode').value,
             start_time: document.getElementById('newStart').value,
             end_time: document.getElementById('newEnd').value,
