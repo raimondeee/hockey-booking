@@ -104,6 +104,69 @@ function resolvePayPalOrderId(paypalOrderId) {
     return paypalOrderId;
 }
 
+function sendBookingConfirmationEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    status,
+    sessionTitle,
+    startTime,
+    location,
+    amountPaid,
+    isWaitlist
+}) {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !parentEmail) return;
+
+    const when = startTime
+        ? new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const locationLine = location ? `\n📍 Location: ${location}` : '';
+    const statusLine = isWaitlist
+        ? `Status: Waitlist`
+        : `Status: Active roster`;
+    const receiptLine = amountPaid != null
+        ? `Amount processed: $${parseFloat(amountPaid).toFixed(2)}`
+        : 'Amount processed: N/A';
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${locationLine}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) console.error("[ERROR] Failed sending booking confirmation email:", mailErr.message);
+    });
+}
+
+function sendMovedToWaitlistEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    sessionTitle,
+    sessionStart,
+    location
+}) {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !parentEmail) return;
+
+    const when = sessionStart
+        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const locationLine = location ? `\n📍 Location: ${location}` : '';
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${locationLine}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) console.error("[ERROR] Failed sending waitlist status email:", mailErr.message);
+    });
+}
+
 /** Issues a PayPal capture refund and updates the booking row. Returns { success, ... } or throws with { status, error }. */
 async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
     const { promoteWaitlist = false } = options;
@@ -292,7 +355,7 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        db.get(`SELECT event_type, custom_capacity FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        db.get(`SELECT title, start_time, location, event_type, custom_capacity, price FROM sessions WHERE id = ?`, [session_id], (err, session) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
@@ -306,6 +369,22 @@ app.post('/api/book', async (req, res) => {
                     
                     db.run(`UPDATE bookings SET status = 'active', paypal_order_id = ?, invitation_sent_at = NULL WHERE id = ?`, [paypal_order_id, existing_booking_id], function(err) {
                         if (err) return res.status(500).json({ error: err.message });
+                        db.get(`SELECT player_name, parent_name, parent_email, status FROM bookings WHERE id = ?`, [existing_booking_id], (fetchErr, updatedBooking) => {
+                            if (!fetchErr && updatedBooking) {
+                                const amountPaid = (paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
+                                sendBookingConfirmationEmail({
+                                    parentEmail: updatedBooking.parent_email,
+                                    parentName: updatedBooking.parent_name,
+                                    playerName: updatedBooking.player_name,
+                                    status: updatedBooking.status,
+                                    sessionTitle: session.title,
+                                    startTime: session.start_time,
+                                    location: session.location,
+                                    amountPaid,
+                                    isWaitlist: updatedBooking.status === 'waitlist'
+                                });
+                            }
+                        });
                         return res.json({ success: true, status: 'active', booking_id: existing_booking_id });
                     });
                 });
@@ -339,6 +418,18 @@ app.post('/api/book', async (req, res) => {
                     paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
                 ], function(err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
+                    sendBookingConfirmationEmail({
+                        parentEmail: cleanEmail,
+                        parentName: parent_name,
+                        playerName: player_name,
+                        status,
+                        sessionTitle: session.title,
+                        startTime: session.start_time,
+                        location: session.location,
+                        amountPaid,
+                        isWaitlist: status === 'waitlist'
+                    });
                     res.json({ success: true, status: status, booking_id: this.lastID });
                 });
             });
@@ -651,10 +742,24 @@ app.post('/api/admin/refunds/bulk', verifyAdminToken, async (req, res) => {
 
 // 12. Admin Portal: Push active player down to waitlist and pull next player up
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
-    db.get(`SELECT session_id FROM bookings WHERE id = ?`, [req.params.id], (err, booking) => {
+    db.get(
+        `SELECT b.session_id, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+         FROM bookings b
+         JOIN sessions s ON b.session_id = s.id
+         WHERE b.id = ?`,
+        [req.params.id],
+        (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
         db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [req.params.id], function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            sendMovedToWaitlistEmail({
+                parentEmail: booking.parent_email,
+                parentName: booking.parent_name,
+                playerName: booking.player_name,
+                sessionTitle: booking.title,
+                sessionStart: booking.start_time,
+                location: booking.location
+            });
             promoteNextWaitlistPlayer(booking.session_id, res);
         });
     });
