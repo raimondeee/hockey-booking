@@ -10,25 +10,41 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public')); 
 
+const LOCATION_ADDRESS_MAP = {
+    "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
+    "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
+    "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
+};
+
 // Secure Production Profile Configurations
 const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
 const ADMIN_PASSWORD = process.env.ADMIN_PASS; 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Initialize the secure email engine transporter map configuration
+// Initialize email transporter (env-configurable; defaults to Gmail SMTP)
+const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
+const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '465', 10);
+const EMAIL_SECURE = process.env.EMAIL_SECURE
+    ? process.env.EMAIL_SECURE === 'true'
+    : EMAIL_PORT === 465;
+const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
+const EMAIL_PASS = (process.env.EMAIL_PASS || '').replace(/\s+/g, '');
+
 const transporter = nodemailer.createTransport({
-    host: 'smtp.office365.com', // Updated to GoDaddy/Microsoft 365
-    port: 587,                  // Secure submission port for Microsoft 365
-    secure: false,              // Must be false for port 587 (uses STARTTLS)
+    host: EMAIL_HOST,
+    port: EMAIL_PORT,
+    secure: EMAIL_SECURE,
+    requireTLS: !EMAIL_SECURE,
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false
+        user: EMAIL_USER,
+        pass: EMAIL_PASS
     }
 });
+
+function getPublicBaseUrl() {
+    const base = process.env.PUBLIC_URL || 'http://localhost:3000';
+    return base.replace(/\/+$/, '');
+}
 
 // Fail-Safe Boot Checks to shield Ben's server on the open internet
 if (!ADMIN_PASSWORD || !JWT_SECRET) {
@@ -36,11 +52,14 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
     console.error("Please configure these fields immediately in your Render Environment tab Dashboard.\n");
 }
 
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+if (EMAIL_USER && EMAIL_PASS) {
+    console.log(`Email transport configured: host=${EMAIL_HOST} port=${EMAIL_PORT} secure=${EMAIL_SECURE} user=${EMAIL_USER}`);
     transporter.verify((error) => {
         if (error) console.warn("[WARN] Email broadcast engine configuration failed verification:", error.message);
         else console.log("Email broadcast engine successfully connected and authenticated to SMTP host.");
     });
+} else {
+    console.warn("[WARN] EMAIL_USER or EMAIL_PASS not set — automated emails are disabled.");
 }
 
 // Background Expiration Sweeper Utility Function
@@ -102,6 +121,151 @@ function resolvePayPalOrderId(paypalOrderId) {
         return paypalOrderId.slice('REFUNDED:'.length);
     }
     return paypalOrderId;
+}
+
+function logSystemEvent(eventType, message, metadata = {}) {
+    db.run(
+        `INSERT INTO system_logs (event_type, message, metadata) VALUES (?, ?, ?)`,
+        [eventType, message, JSON.stringify(metadata)],
+        () => {}
+    );
+}
+
+function isEmailConfigured() {
+    return !!(EMAIL_USER && EMAIL_PASS);
+}
+
+function formatRinkBlock(location) {
+    if (!location) return '';
+    const address = LOCATION_ADDRESS_MAP[location];
+    if (address) return `Rink: ${location}\nAddress: ${address}`;
+    return `Rink: ${location}`;
+}
+
+function sendBookingConfirmationEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    status,
+    sessionTitle,
+    startTime,
+    location,
+    amountPaid,
+    isWaitlist
+}) {
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Booking confirmation email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Booking confirmation email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
+
+    const when = startTime
+        ? new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const rinkBlock = formatRinkBlock(location);
+    const statusLine = isWaitlist
+        ? `Status: Waitlist`
+        : `Status: Active roster`;
+    const receiptLine = amountPaid != null
+        ? `Amount processed: $${parseFloat(amountPaid).toFixed(2)}`
+        : 'Amount processed: N/A';
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error("[ERROR] Failed sending booking confirmation email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Booking confirmation email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Booking confirmation email sent.', { parentEmail, playerName, sessionTitle, isWaitlist });
+    });
+}
+
+function sendMovedToWaitlistEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    sessionTitle,
+    sessionStart,
+    location
+}) {
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Moved-to-waitlist email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Moved-to-waitlist email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
+
+    const when = sessionStart
+        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const rinkBlock = formatRinkBlock(location);
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error("[ERROR] Failed sending waitlist status email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Moved-to-waitlist email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Moved-to-waitlist email sent.', { parentEmail, playerName, sessionTitle });
+    });
+}
+
+function sendRemovedFromSessionEmail({
+    parentEmail,
+    parentName,
+    playerName,
+    sessionTitle,
+    sessionStart,
+    location
+}) {
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Removed-from-session email skipped: missing parent email.', { playerName, sessionTitle });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Removed-from-session email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail, playerName, sessionTitle });
+        return;
+    }
+
+    const when = sessionStart
+        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'TBD';
+    const rinkBlock = formatRinkBlock(location);
+
+    const mailOptions = {
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+        to: parentEmail,
+        subject: `[UPDATE] ${playerName} removed from session — ${sessionTitle}`,
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply directly to Coach Ben.\n\nBest regards,\nCoach Ben Stadey`
+    };
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error("[ERROR] Failed sending removed-from-session email:", mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Removed-from-session email failed.', { parentEmail, playerName, sessionTitle, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Removed-from-session email sent.', { parentEmail, playerName, sessionTitle });
+    });
 }
 
 /** Issues a PayPal capture refund and updates the booking row. Returns { success, ... } or throws with { status, error }. */
@@ -292,11 +456,11 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        db.get(`SELECT event_type, custom_capacity FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        db.get(`SELECT title, start_time, location, event_type, custom_capacity, price FROM sessions WHERE id = ?`, [session_id], (err, session) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
-            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 6 : 25);
+            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 5 : 25);
             let maxWaitlist = session.event_type === 'small' ? 3 : 15;
 
             // Handle the unique checkout flow for a waitlist player claiming an active position hold
@@ -306,6 +470,22 @@ app.post('/api/book', async (req, res) => {
                     
                     db.run(`UPDATE bookings SET status = 'active', paypal_order_id = ?, invitation_sent_at = NULL WHERE id = ?`, [paypal_order_id, existing_booking_id], function(err) {
                         if (err) return res.status(500).json({ error: err.message });
+                        db.get(`SELECT player_name, parent_name, parent_email, status FROM bookings WHERE id = ?`, [existing_booking_id], (fetchErr, updatedBooking) => {
+                            if (!fetchErr && updatedBooking) {
+                                const amountPaid = (paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
+                                sendBookingConfirmationEmail({
+                                    parentEmail: updatedBooking.parent_email,
+                                    parentName: updatedBooking.parent_name,
+                                    playerName: updatedBooking.player_name,
+                                    status: updatedBooking.status,
+                                    sessionTitle: session.title,
+                                    startTime: session.start_time,
+                                    location: session.location,
+                                    amountPaid,
+                                    isWaitlist: updatedBooking.status === 'waitlist'
+                                });
+                            }
+                        });
                         return res.json({ success: true, status: 'active', booking_id: existing_booking_id });
                     });
                 });
@@ -339,6 +519,18 @@ app.post('/api/book', async (req, res) => {
                     paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
                 ], function(err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
+                    sendBookingConfirmationEmail({
+                        parentEmail: cleanEmail,
+                        parentName: parent_name,
+                        playerName: player_name,
+                        status,
+                        sessionTitle: session.title,
+                        startTime: session.start_time,
+                        location: session.location,
+                        amountPaid,
+                        isWaitlist: status === 'waitlist'
+                    });
                     res.json({ success: true, status: status, booking_id: this.lastID });
                 });
             });
@@ -390,6 +582,56 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id: this.lastID });
     });
+});
+
+// 5a. Admin Portal: Update an existing session (time, location, price, etc.)
+app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
+    const sessionId = req.params.id;
+    const { title, start_time, end_time, price, event_type, access_code, location } = req.body;
+
+    if (!title || !start_time || !end_time) {
+        return res.status(400).json({ error: 'Title, start time, and end time are required.' });
+    }
+    if (new Date(end_time) <= new Date(start_time)) {
+        return res.status(400).json({ error: 'End time must be after start time.' });
+    }
+    if (price == null || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
+        return res.status(400).json({ error: 'A valid session price is required.' });
+    }
+
+    const type = event_type || 'large';
+    const cleanAccessCode = access_code && access_code.trim() ? access_code.trim() : null;
+
+    db.get(
+        `SELECT s.custom_capacity,
+            (SELECT COUNT(*) FROM bookings WHERE session_id = s.id AND status = 'active') AS active_count
+         FROM sessions s WHERE s.id = ?`,
+        [sessionId],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'Session not found.' });
+
+            const maxActive = row.custom_capacity ? row.custom_capacity : (type === 'small' ? 5 : 25);
+            if (row.active_count > maxActive) {
+                return res.status(400).json({
+                    error: `This session has ${row.active_count} active skaters, which exceeds the ${maxActive}-player limit for the selected format. Increase max roster or remove skaters first.`
+                });
+            }
+
+            db.run(
+                `UPDATE sessions
+                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?
+                 WHERE id = ?`,
+                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, sessionId],
+                function(updateErr) {
+                    if (updateErr) return res.status(500).json({ error: updateErr.message });
+                    if (this.changes === 0) return res.status(404).json({ error: 'Session not found.' });
+                    promoteNextWaitlistPlayer(sessionId);
+                    res.json({ success: true, message: 'Session updated successfully.' });
+                }
+            );
+        }
+    );
 });
 
 // 5b. Admin Portal: Override capacity settings on an individual session block level
@@ -478,10 +720,24 @@ app.post('/api/admin/sessions/:id/reorder-waitlist', verifyAdminToken, (req, res
 
 // 11. Admin Portal: Remove player from roster entirely (manually cancels/drops spot)
 app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
-    db.get(`SELECT session_id, status FROM bookings WHERE id = ?`, [req.params.id], (err, booking) => {
+    db.get(
+        `SELECT b.session_id, b.status, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+         FROM bookings b
+         JOIN sessions s ON b.session_id = s.id
+         WHERE b.id = ?`,
+        [req.params.id],
+        (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
         db.run(`DELETE FROM bookings WHERE id = ?`, [req.params.id], function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            sendRemovedFromSessionEmail({
+                parentEmail: booking.parent_email,
+                parentName: booking.parent_name,
+                playerName: booking.player_name,
+                sessionTitle: booking.title,
+                sessionStart: booking.start_time,
+                location: booking.location
+            });
             if (booking.status === 'active') promoteNextWaitlistPlayer(booking.session_id, res);
             else res.json({ success: true, message: "Player removed from waitlist successfully." });
         });
@@ -651,12 +907,43 @@ app.post('/api/admin/refunds/bulk', verifyAdminToken, async (req, res) => {
 
 // 12. Admin Portal: Push active player down to waitlist and pull next player up
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
-    db.get(`SELECT session_id FROM bookings WHERE id = ?`, [req.params.id], (err, booking) => {
+    db.get(
+        `SELECT b.session_id, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+         FROM bookings b
+         JOIN sessions s ON b.session_id = s.id
+         WHERE b.id = ?`,
+        [req.params.id],
+        (err, booking) => {
         if (err || !booking) return res.status(500).json({ error: "Booking record not found." });
-        db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [req.params.id], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            promoteNextWaitlistPlayer(booking.session_id, res);
-        });
+        db.get(
+            `SELECT COALESCE(MAX(queue_position), 0) AS max_queue
+             FROM bookings
+             WHERE session_id = ? AND status IN ('waitlist', 'pending_payment') AND id != ?`,
+            [booking.session_id, req.params.id],
+            (queueErr, queueRow) => {
+                if (queueErr) return res.status(500).json({ error: queueErr.message });
+                const nextQueuePos = (queueRow?.max_queue || 0) + 1;
+
+                db.run(
+                    `UPDATE bookings
+                     SET status = 'waitlist', invitation_sent_at = NULL, queue_position = ?
+                     WHERE id = ?`,
+                    [nextQueuePos, req.params.id],
+                    function(err) {
+                        if (err) return res.status(500).json({ error: err.message });
+                        sendMovedToWaitlistEmail({
+                            parentEmail: booking.parent_email,
+                            parentName: booking.parent_name,
+                            playerName: booking.player_name,
+                            sessionTitle: booking.title,
+                            sessionStart: booking.start_time,
+                            location: booking.location
+                        });
+
+                        promoteNextWaitlistPlayer(booking.session_id, res, { excludeBookingId: Number(req.params.id) });
+                    }
+                );
+            });
     });
 });
 
@@ -699,11 +986,12 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             if (rows.length === 0) return res.json({ success: true, message: "Broadcast skipped. Roster empty." });
 
             const emailList = rows.map(r => r.parent_email);
-            const locationContext = session.location ? `\n📍 Location: ${session.location}` : "";
+            const rinkBlock = formatRinkBlock(session.location);
+            const locationContext = rinkBlock ? `\n${rinkBlock}` : "";
             
             const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
-                to: process.env.EMAIL_USER, 
+                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+                to: EMAIL_USER, 
                 bcc: emailList, 
                 subject: `[SCHEDULE UPDATE] ${session.title} - ${subject}`,
                 text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nDo not reply directly to this automated blast. For any further coordination inquiries, reach out to Ben directly at ben@benstadeyhockey.com.`
@@ -736,7 +1024,7 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
 
             let maxPossibleCapacity = 0;
             sessions.forEach(s => { 
-                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 6 : 25); 
+                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 5 : 25); 
             });
 
             const totalActiveBookings = financeRow.total_registrations || 0;
@@ -802,16 +1090,17 @@ app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
     });
 });
 
-async function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
+async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
+    const { excludeBookingId = null } = options;
     const nextUpQuery = `
-        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title
+        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title, s.location
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
-        WHERE b.session_id = ? AND b.status = 'waitlist'
+        WHERE b.session_id = ? AND b.status = 'waitlist' AND (? IS NULL OR b.id != ?)
         ORDER BY b.queue_position ASC, b.created_at ASC
         LIMIT 1`;
 
-    db.get(nextUpQuery, [sessionId], async (err, nextPlayer) => {
+    db.get(nextUpQuery, [sessionId, excludeBookingId, excludeBookingId], async (err, nextPlayer) => {
         if (err) {
             if (optionalResContext) optionalResContext.status(500).json({ error: err.message });
             return;
@@ -830,7 +1119,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
                 return;
             }
 
-            const baseClaimUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}`;
+            const baseClaimUrl = `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}`;
 
             // Attempt to pre-create a PayPal order so the email contains a direct deep link
             // into PayPal checkout — the parent taps one link and lands straight in the payment flow.
@@ -854,8 +1143,8 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
                             }],
                             // Return URL carries the booking ID so claim-spot.html can finalize the booking
                             application_context: {
-                                return_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_return=1`,
-                                cancel_url: `${process.env.PUBLIC_URL || 'http://localhost:3000'}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_cancelled=1`,
+                                return_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_return=1`,
+                                cancel_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_cancelled=1`,
                                 brand_name: 'Ben Stadey Hockey Training',
                                 user_action: 'PAY_NOW'
                             }
@@ -881,15 +1170,16 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext) {
             }
 
             const isDeepLink = deepLinkUrl !== baseClaimUrl;
+            const rinkBlock = formatRinkBlock(nextPlayer.location);
             const linkLabel = isDeepLink
                 ? `👉 Complete Payment & Claim Spot (Direct Checkout Link):\n${deepLinkUrl}`
                 : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
 
             const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
+                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
             };
 
             transporter.sendMail(mailOptions, (mailErr) => {
