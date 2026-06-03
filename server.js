@@ -27,14 +27,17 @@ const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '465', 10);
 const EMAIL_SECURE = process.env.EMAIL_SECURE
     ? process.env.EMAIL_SECURE === 'true'
     : EMAIL_PORT === 465;
+const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
+const EMAIL_PASS = (process.env.EMAIL_PASS || '').replace(/\s+/g, '');
 
 const transporter = nodemailer.createTransport({
     host: EMAIL_HOST,
     port: EMAIL_PORT,
     secure: EMAIL_SECURE,
+    requireTLS: !EMAIL_SECURE,
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        user: EMAIL_USER,
+        pass: EMAIL_PASS
     }
 });
 
@@ -49,11 +52,14 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
     console.error("Please configure these fields immediately in your Render Environment tab Dashboard.\n");
 }
 
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+if (EMAIL_USER && EMAIL_PASS) {
+    console.log(`Email transport configured: host=${EMAIL_HOST} port=${EMAIL_PORT} secure=${EMAIL_SECURE} user=${EMAIL_USER}`);
     transporter.verify((error) => {
         if (error) console.warn("[WARN] Email broadcast engine configuration failed verification:", error.message);
         else console.log("Email broadcast engine successfully connected and authenticated to SMTP host.");
     });
+} else {
+    console.warn("[WARN] EMAIL_USER or EMAIL_PASS not set — automated emails are disabled.");
 }
 
 // Background Expiration Sweeper Utility Function
@@ -126,7 +132,7 @@ function logSystemEvent(eventType, message, metadata = {}) {
 }
 
 function isEmailConfigured() {
-    return !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+    return !!(EMAIL_USER && EMAIL_PASS);
 }
 
 function formatRinkBlock(location) {
@@ -168,7 +174,7 @@ function sendBookingConfirmationEmail({
         : 'Amount processed: N/A';
 
     const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
         to: parentEmail,
         subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
         text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
@@ -207,7 +213,7 @@ function sendMovedToWaitlistEmail({
     const rinkBlock = formatRinkBlock(location);
 
     const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
         to: parentEmail,
         subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
         text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
@@ -246,7 +252,7 @@ function sendRemovedFromSessionEmail({
     const rinkBlock = formatRinkBlock(location);
 
     const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
         to: parentEmail,
         subject: `[UPDATE] ${playerName} removed from session — ${sessionTitle}`,
         text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply directly to Coach Ben.\n\nBest regards,\nCoach Ben Stadey`
@@ -934,8 +940,8 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             const locationContext = rinkBlock ? `\n${rinkBlock}` : "";
             
             const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
-                to: process.env.EMAIL_USER, 
+                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+                to: EMAIL_USER, 
                 bcc: emailList, 
                 subject: `[SCHEDULE UPDATE] ${session.title} - ${subject}`,
                 text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nDo not reply directly to this automated blast. For any further coordination inquiries, reach out to Ben directly at ben@benstadeyhockey.com.`
@@ -1120,7 +1126,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                 : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
 
             const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${process.env.EMAIL_USER}>`,
+                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
                 text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
