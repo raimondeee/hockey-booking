@@ -116,6 +116,8 @@
         
         #paypal-button-wrapper { position: relative; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
+        #paymentsPausedNotice { display: none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 10px; }
+        #paymentsPausedNotice a { color: #0070ba; font-weight: bold; }
 
         #contactCoachLink, #manageCouponsBtn, #linkOpsDashboard {
             font-size: 14px; 
@@ -153,6 +155,8 @@
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
     </div>
 </div>
+
+<div id="siteNoticeBannerMount"></div>
 
 <div class="filter-controls" id="filterBar">
     <span class="filter-label">Filter Schedule:</span>
@@ -258,12 +262,31 @@
             <div id="paypal-button-container"></div>
         </div>
 
+        <div id="paymentsPausedNotice">
+            Online checkout is temporarily unavailable. Please contact
+            <a href="mailto:ben@benstadeyhockey.com?subject=Registration%20%2F%20Payment">Ben at ben@benstadeyhockey.com</a>
+            to register and arrange payment for this session.
+        </div>
+
         <button id="freeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitBooking(null)">Complete Free Registration</button>
         
         <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
 
     <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
+        <div style="background: #e8f4fc; border: 1px solid #90cdf4; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #2b6cb0;">⚙️ Site Checkout &amp; Notices</h4>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
+                <input type="checkbox" id="settingPaypalEnabled" onchange="saveSiteSettings()"> PayPal checkout enabled (parents can pay online)
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
+                <input type="checkbox" id="settingBannerEnabled" onchange="saveSiteSettings()"> Show notice banner to parents
+            </label>
+            <label style="display:block; font-size:11px; font-weight:bold; color:#4a5568; text-transform:uppercase; margin-bottom:4px;">Banner message</label>
+            <textarea id="settingBannerMessage" rows="3" style="width:100%; padding:8px; box-sizing:border-box; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:inherit; resize:vertical;" onblur="saveSiteSettings()"></textarea>
+            <p id="siteSettingsFeedback" style="font-size:11px; color:#2f855a; margin:8px 0 0 0; min-height:14px;"></p>
+        </div>
+
         <div style="background: #e2e8f0; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; gap:10px;">
             <span style="font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; white-space: nowrap;">📢 Quick Share Link:</span>
             <button class="btn" id="btnCopyQuickShare" style="background: #4a5568; color: white; padding: 5px 12px; font-size: 11px; margin:0; white-space: nowrap;" onclick="copyEventShareLinkToClipboard()">📋 Copy Link</button>
@@ -372,6 +395,7 @@
     <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;"></div>
 </div>
 
+<script src="/site-banner.js"></script>
 <script>
     let calendar;
     let selectedEvent = null;
@@ -382,6 +406,7 @@
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
     let sessionFormMode = 'create';
+    let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '' };
 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
@@ -393,6 +418,10 @@
         const urlParams = new URLSearchParams(window.location.search);
         const initialType = urlParams.get('type') || 'all';
         updateFilterButtonUI(initialType);
+
+        loadSiteConfig().then(() => {
+            if (window.SiteBanner) SiteBanner.load();
+        });
         
         if (adminToken) { applyCoachUIMode(true); }
 
@@ -555,24 +584,34 @@
         const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
         document.getElementById('waitlistBtn').disabled = !isFormValid;
 
-        if (currentSessionPrice <= 0 && selectedEvent && selectedEvent.extendedProps.activeCount < selectedEvent.extendedProps.maxActive) {
+        const sessionFull = selectedEvent && selectedEvent.extendedProps.activeCount >= selectedEvent.extendedProps.maxActive;
+        const checkoutPaused = !siteConfig.paypal_checkout_enabled;
+        const pausedNotice = document.getElementById('paymentsPausedNotice');
+        pausedNotice.style.display = 'none';
+
+        if (currentSessionPrice <= 0 && selectedEvent && !sessionFull) {
             document.getElementById('paypal-button-wrapper').style.display = 'none';
             document.getElementById('freeSubmitBtn').style.display = isFormValid ? 'block' : 'none';
             document.getElementById('freeSubmitBtn').disabled = !isFormValid;
         } else {
             document.getElementById('freeSubmitBtn').style.display = 'none';
-            if (selectedEvent && selectedEvent.extendedProps.activeCount >= selectedEvent.extendedProps.maxActive) {
+            if (sessionFull) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
+            } else if (checkoutPaused) {
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
+                pausedNotice.style.display = 'block';
             } else {
                 document.getElementById('paypal-button-wrapper').style.display = 'block';
             }
 
-            if (isFormValid) {
-                document.getElementById('paypalDisabledOverlay').style.display = 'none';
-                if (paypalActionsInstance) paypalActionsInstance.enable();
-            } else {
-                document.getElementById('paypalDisabledOverlay').style.display = 'block';
-                if (paypalActionsInstance) paypalActionsInstance.disable();
+            if (!checkoutPaused && !sessionFull) {
+                if (isFormValid) {
+                    document.getElementById('paypalDisabledOverlay').style.display = 'none';
+                    if (paypalActionsInstance) paypalActionsInstance.enable();
+                } else {
+                    document.getElementById('paypalDisabledOverlay').style.display = 'block';
+                    if (paypalActionsInstance) paypalActionsInstance.disable();
+                }
             }
         }
     }
@@ -660,14 +699,76 @@
             if (props.activeCount >= props.maxActive) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
                 document.getElementById('waitlistBtn').style.display = 'block';
-            } else {
+            } else if (siteConfig.paypal_checkout_enabled) {
                 injectPayPalScriptDynamic();
+            } else {
+                document.getElementById('paypal-button-wrapper').style.display = 'none';
             }
         }
         validateForm();
     }
 
+    function loadSiteConfig() {
+        return fetch('/api/config/site')
+            .then(res => res.json())
+            .then(cfg => {
+                siteConfig = cfg;
+                syncCoachSiteSettingsForm();
+                return cfg;
+            })
+            .catch(err => {
+                console.warn('Could not load site config:', err);
+                return siteConfig;
+            });
+    }
+
+    function syncCoachSiteSettingsForm() {
+        const paypalEl = document.getElementById('settingPaypalEnabled');
+        const bannerEl = document.getElementById('settingBannerEnabled');
+        const messageEl = document.getElementById('settingBannerMessage');
+        if (!paypalEl) return;
+        paypalEl.checked = !!siteConfig.paypal_checkout_enabled;
+        bannerEl.checked = !!siteConfig.banner_enabled;
+        messageEl.value = siteConfig.banner_message || '';
+    }
+
+    function saveSiteSettings() {
+        if (!adminToken) return;
+        const feedback = document.getElementById('siteSettingsFeedback');
+        const payload = {
+            token: adminToken,
+            paypal_checkout_enabled: document.getElementById('settingPaypalEnabled').checked,
+            banner_enabled: document.getElementById('settingBannerEnabled').checked,
+            banner_message: document.getElementById('settingBannerMessage').value.trim()
+        };
+        fetch('/api/admin/site-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                feedback.style.color = '#dc3545';
+                feedback.innerText = data.error;
+                return;
+            }
+            siteConfig = data.settings;
+            feedback.style.color = '#2f855a';
+            feedback.innerText = 'Settings saved.';
+            if (window.SiteBanner) SiteBanner.load();
+            validateForm();
+            setTimeout(() => { feedback.innerText = ''; }, 2500);
+        })
+        .catch(() => {
+            feedback.style.color = '#dc3545';
+            feedback.innerText = 'Failed to save settings.';
+        });
+    }
+
     function injectPayPalScriptDynamic() {
+        if (!siteConfig.paypal_checkout_enabled) return;
+
         if (paypalScriptLoaded) {
             document.getElementById('paypal-button-wrapper').style.display = 'block';
             return;
@@ -676,6 +777,7 @@
         fetch('/api/config/paypal-client-id')
             .then(res => res.json())
             .then(config => {
+                if (!config.clientId) return;
                 const script = document.createElement('script');
                 script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
                 script.onload = () => {
@@ -712,7 +814,24 @@
         paypal.Buttons({
             onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
             onClick: function() { validateForm(); },
-            createOrder: function(data, actions) { return actions.order.create({ purchase_units: [{ amount: { value: currentSessionPrice.toString() } }] }); },
+            createOrder: function(data, actions) {
+                const sessionLabel = selectedEvent ? selectedEvent.title.split('(')[0].trim() : 'Hockey Training Session';
+                return actions.order.create({
+                    purchase_units: [{
+                        amount: { currency_code: 'USD', value: currentSessionPrice.toString() },
+                        description: sessionLabel
+                    }],
+                    payment_source: {
+                        paypal: {
+                            experience_context: {
+                                shipping_preference: 'NO_SHIPPING',
+                                brand_name: 'Ben Stadey Hockey Training',
+                                user_action: 'PAY_NOW'
+                            }
+                        }
+                    }
+                });
+            },
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
             onError: function(err) {
                 console.error("PayPal Smart Button Exception Matrix:", err);
@@ -748,6 +867,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         }).then(res => res.json()).then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
             alert(data.status === 'active' ? 'Spot confirmed!' : 'Player placed on waitlist.');
             closeAllModals();
             calendar.refetchEvents();
@@ -1178,6 +1301,7 @@
                 adminToken = data.token;
                 localStorage.setItem('coach_admin_token', data.token); 
                 applyCoachUIMode(true);
+                loadSiteConfig().then(() => syncCoachSiteSettingsForm());
                 closeAllModals();
                 calendar.refetchEvents(); 
             } else { alert("Authorization failed."); }

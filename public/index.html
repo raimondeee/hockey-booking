@@ -200,6 +200,8 @@
         </div>
     </nav>
 
+    <div id="siteNoticeBannerMount"></div>
+
     <!-- Main Title Content Block -->
     <section class="hero">
         <h1>Meaningful On-Ice Training</h1>
@@ -239,5 +241,13 @@
         &copy; 2026 Ben Stadey Hockey Training. All Rights Reserved. Protected Payments via PayPal.
     </footer>
 
+    <script src="/site-banner.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.SiteBanner) {
+                SiteBanner.load({ darkTheme: true, insertBefore: document.querySelector('.hero') });
+            }
+        });
+    </script>
 </body>
 </html>

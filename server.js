@@ -109,6 +109,61 @@ function getPayPalHost() {
         : 'https://api-m.sandbox.paypal.com';
 }
 
+const DEFAULT_SITE_SETTINGS = {
+    paypal_checkout_enabled: '1',
+    banner_enabled: '0',
+    banner_message: 'Online checkout is temporarily unavailable while our payment provider completes a brief account review. To register or pay for a session, please contact Ben directly at ben@benstadeyhockey.com. We expect online checkout to return soon.'
+};
+
+function seedSiteSettingsIfEmpty() {
+    db.get(`SELECT COUNT(*) AS count FROM site_settings`, [], (err, row) => {
+        if (err || !row || row.count > 0) return;
+        Object.entries(DEFAULT_SITE_SETTINGS).forEach(([key, value]) => {
+            db.run(`INSERT INTO site_settings (key, value) VALUES (?, ?)`, [key, value]);
+        });
+    });
+}
+
+seedSiteSettingsIfEmpty();
+
+function getSiteSettings() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT key, value FROM site_settings`, [], (err, rows) => {
+            if (err) return reject(err);
+            const raw = { ...DEFAULT_SITE_SETTINGS };
+            (rows || []).forEach((r) => { raw[r.key] = r.value; });
+            resolve({
+                paypal_checkout_enabled: raw.paypal_checkout_enabled !== '0',
+                banner_enabled: raw.banner_enabled === '1',
+                banner_message: raw.banner_message || DEFAULT_SITE_SETTINGS.banner_message
+            });
+        });
+    });
+}
+
+function upsertSiteSetting(key, value) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT INTO site_settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+            [key, value],
+            (err) => (err ? reject(err) : resolve())
+        );
+    });
+}
+
+function buildPayPalExperienceContext(bookingId) {
+    const base = getPublicBaseUrl();
+    const claimUrl = `${base}/claim-spot.html?booking_id=${bookingId}`;
+    return {
+        shipping_preference: 'NO_SHIPPING',
+        brand_name: 'Ben Stadey Hockey Training',
+        user_action: 'PAY_NOW',
+        return_url: `${claimUrl}&paypal_return=1`,
+        cancel_url: `${claimUrl}&paypal_cancelled=1`
+    };
+}
+
 function isRefundablePayPalOrder(paypalOrderId) {
     if (!paypalOrderId) return false;
     if (paypalOrderId === 'WAITLIST_FREE' || paypalOrderId === 'WAIVED_FREE') return false;
@@ -407,12 +462,55 @@ app.get('/api/sessions', (req, res) => {
     });
 });
 
-// New Public Endpoint to let frontend pages safely request the active Client ID configuration
-app.get('/api/config/paypal-client-id', (req, res) => {
-    if (!process.env.PAYPAL_CLIENT_ID) {
-        return res.status(500).json({ error: "Merchant client token signature is unassigned on server profiles." });
+// Public site configuration (payment toggle, parent notice banner)
+app.get('/api/config/site', async (req, res) => {
+    try {
+        const settings = await getSiteSettings();
+        res.json({
+            paypal_checkout_enabled: settings.paypal_checkout_enabled,
+            banner_enabled: settings.banner_enabled,
+            banner_message: settings.banner_message
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-    res.json({ clientId: process.env.PAYPAL_CLIENT_ID });
+});
+
+// New Public Endpoint to let frontend pages safely request the active Client ID configuration
+app.get('/api/config/paypal-client-id', async (req, res) => {
+    try {
+        const settings = await getSiteSettings();
+        if (!settings.paypal_checkout_enabled) {
+            return res.json({ clientId: null, paypal_checkout_enabled: false });
+        }
+        if (!process.env.PAYPAL_CLIENT_ID) {
+            return res.status(500).json({ error: "Merchant client token signature is unassigned on server profiles." });
+        }
+        res.json({ clientId: process.env.PAYPAL_CLIENT_ID, paypal_checkout_enabled: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/site-settings', verifyAdminToken, async (req, res) => {
+    const { paypal_checkout_enabled, banner_enabled, banner_message } = req.body;
+    try {
+        if (paypal_checkout_enabled !== undefined) {
+            await upsertSiteSetting('paypal_checkout_enabled', paypal_checkout_enabled ? '1' : '0');
+        }
+        if (banner_enabled !== undefined) {
+            await upsertSiteSetting('banner_enabled', banner_enabled ? '1' : '0');
+        }
+        if (banner_message !== undefined) {
+            const trimmed = String(banner_message).trim();
+            if (!trimmed) return res.status(400).json({ error: 'Banner message cannot be empty.' });
+            await upsertSiteSetting('banner_message', trimmed);
+        }
+        const settings = await getSiteSettings();
+        res.json({ success: true, settings });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 2. Public: Validate a coupon code and return its value to the frontend layout
@@ -438,6 +536,24 @@ app.post('/api/book', async (req, res) => {
     db.get(`SELECT email FROM banned_emails WHERE email = ?`, [cleanEmail], async (err, banRecord) => {
         if (err) return res.status(500).json({ error: "Internal security handshake check fault." });
         if (banRecord) return res.status(403).json({ error: "Registration denied. Please contact Coach Ben directly for scheduling alternatives." });
+
+        let siteSettings;
+        try {
+            siteSettings = await getSiteSettings();
+        } catch (settingsErr) {
+            return res.status(500).json({ error: "Unable to load site configuration." });
+        }
+
+        const checkoutPausedMessage = "Online checkout is temporarily unavailable. Please contact Coach Ben at ben@benstadeyhockey.com to register and arrange payment.";
+
+        if (!siteSettings.paypal_checkout_enabled) {
+            const isPaidPayPalOrder = paypal_order_id
+                && paypal_order_id !== 'WAITLIST_FREE'
+                && paypal_order_id !== 'WAIVED_FREE';
+            if (isPaidPayPalOrder) {
+                return res.status(503).json({ error: checkoutPausedMessage });
+            }
+        }
 
         if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE' && paypal_order_id !== 'WAIVED_FREE') {
             try {
@@ -465,6 +581,15 @@ app.post('/api/book', async (req, res) => {
 
             // Handle the unique checkout flow for a waitlist player claiming an active position hold
             if (existing_booking_id) {
+                if (!siteSettings.paypal_checkout_enabled && session.price > 0) {
+                    const hasVerifiedPayment = paypal_order_id
+                        && paypal_order_id !== 'WAITLIST_FREE'
+                        && paypal_order_id !== 'WAIVED_FREE';
+                    if (!hasVerifiedPayment) {
+                        return res.status(503).json({ error: checkoutPausedMessage });
+                    }
+                }
+
                 db.get(`SELECT id, status FROM bookings WHERE id = ? AND session_id = ?`, [existing_booking_id, session_id], (err, bRecord) => {
                     if (err || !bRecord) return res.status(400).json({ error: "Claim token footprint match missing." });
                     
@@ -503,6 +628,13 @@ app.post('/api/book', async (req, res) => {
                 if (counts.active >= maxActive) {
                     if (counts.waitlist >= maxWaitlist) return res.status(400).json({ error: `This training session and its waitlist bounds are completely full.` });
                     status = 'waitlist';
+                }
+
+                if (!siteSettings.paypal_checkout_enabled && session.price > 0 && paypal_order_id !== 'WAIVED_FREE') {
+                    const unpaidMarker = !paypal_order_id || paypal_order_id === 'WAITLIST_FREE';
+                    if (unpaidMarker && status === 'active') {
+                        return res.status(503).json({ error: checkoutPausedMessage });
+                    }
                 }
 
                 const waiverTimestamp = new Date().toISOString(); 
@@ -1125,12 +1257,16 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
             // into PayPal checkout — the parent taps one link and lands straight in the payment flow.
             let deepLinkUrl = baseClaimUrl; // fallback if PayPal order creation fails
 
-            if (nextPlayer.price > 0 && process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET) {
+            const siteSettings = await getSiteSettings();
+            const canPrebuildPayPalOrder = siteSettings.paypal_checkout_enabled
+                && nextPlayer.price > 0
+                && process.env.PAYPAL_CLIENT_ID
+                && process.env.PAYPAL_SECRET;
+
+            if (canPrebuildPayPalOrder) {
                 try {
                     const accessToken = await getPayPalAccessToken();
-                    const paypalHost = process.env.PAYPAL_MODE === 'live'
-                        ? 'https://api-m.paypal.com'
-                        : 'https://api-m.sandbox.paypal.com';
+                    const paypalHost = getPayPalHost();
 
                     const orderRes = await fetch(`${paypalHost}/v2/checkout/orders`, {
                         method: 'POST',
@@ -1141,12 +1277,10 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                                 amount: { currency_code: 'USD', value: nextPlayer.price.toFixed(2) },
                                 description: `Hockey Training: ${nextPlayer.title} — ${nextPlayer.player_name}`
                             }],
-                            // Return URL carries the booking ID so claim-spot.html can finalize the booking
-                            application_context: {
-                                return_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_return=1`,
-                                cancel_url: `${getPublicBaseUrl()}/claim-spot.html?booking_id=${nextPlayer.id}&paypal_cancelled=1`,
-                                brand_name: 'Ben Stadey Hockey Training',
-                                user_action: 'PAY_NOW'
+                            payment_source: {
+                                paypal: {
+                                    experience_context: buildPayPalExperienceContext(nextPlayer.id)
+                                }
                             }
                         })
                     });
@@ -1174,12 +1308,18 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
             const linkLabel = isDeepLink
                 ? `👉 Complete Payment & Claim Spot (Direct Checkout Link):\n${deepLinkUrl}`
                 : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
+            const checkoutPaused = !siteSettings.paypal_checkout_enabled;
+            const paymentInstructions = checkoutPaused
+                ? 'Online checkout is temporarily unavailable. Please contact Ben at ben@benstadeyhockey.com to arrange payment and confirm your spot.'
+                : (isDeepLink
+                    ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.'
+                    : 'Visit the link above to complete your registration and payment.');
 
             const mailOptions = {
                 from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${isDeepLink ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.' : 'Visit the link above to complete your registration and payment.'}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
+                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${paymentInstructions}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
             };
 
             transporter.sendMail(mailOptions, (mailErr) => {

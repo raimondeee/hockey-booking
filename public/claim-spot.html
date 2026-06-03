@@ -23,6 +23,8 @@
 
         #paypal-button-wrapper { position: relative; margin-top: 15px; }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; background: rgba(255,255,255,0.1); }
+        #paymentsPausedNotice { display: none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 12px; }
+        #paymentsPausedNotice a { color: #0070ba; font-weight: bold; }
         
         .status-screen { text-align: center; padding: 40px 20px; display: none; }
         .status-icon-success { font-size: 50px; color: #28a745; margin-bottom: 15px; }
@@ -32,6 +34,8 @@
     </style>
 </head>
 <body>
+
+<div id="siteNoticeBannerMount"></div>
 
 <div class="checkout-card" id="mainCheckoutPanel">
     <div class="logo-area">
@@ -90,6 +94,12 @@
             <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please accept the liability waiver terms to unlock checkout.')"></div>
             <div id="paypal-button-container"></div>
         </div>
+
+        <div id="paymentsPausedNotice">
+            Online checkout is temporarily unavailable. Please contact
+            <a href="mailto:ben@benstadeyhockey.com?subject=Waitlist%20Spot%20Payment">Ben at ben@benstadeyhockey.com</a>
+            to arrange payment and confirm your roster spot before your 24-hour hold expires.
+        </div>
     </div>
 </div>
 
@@ -107,12 +117,14 @@
     <a href="/calendar.html" class="btn-home">Return to Schedule</a>
 </div>
 
+<script src="/site-banner.js"></script>
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     const bookingId = urlParams.get('booking_id');
     
     let targetRecordData = null;
     let paypalActionsInstance = null;
+    let siteConfig = { paypal_checkout_enabled: true };
 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
@@ -126,17 +138,30 @@
             return;
         }
 
-        // Production Payment Engine Bridge: Streams Client ID parameters from the backend configuration layers securely
-        fetch('/api/config/paypal-client-id')
+        fetch('/api/config/site')
             .then(res => res.json())
-            .then(config => {
-                const script = document.createElement('script');
-                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
-                script.onload = () => lookupInvitationContext(); // Proceed with lookup matching once code assets mount safely
-                document.body.appendChild(script);
+            .then(cfg => {
+                siteConfig = cfg;
+                if (window.SiteBanner) SiteBanner.load();
+                if (!cfg.paypal_checkout_enabled) {
+                    lookupInvitationContext();
+                    return;
+                }
+                return fetch('/api/config/paypal-client-id')
+                    .then(res => res.json())
+                    .then(config => {
+                        if (!config.clientId) {
+                            document.getElementById('loadingState').innerText = "Online checkout is temporarily unavailable. Please contact Ben at ben@benstadeyhockey.com.";
+                            return;
+                        }
+                        const script = document.createElement('script');
+                        script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                        script.onload = () => lookupInvitationContext();
+                        document.body.appendChild(script);
+                    });
             })
-            .catch(err => {
-                document.getElementById('loadingState').innerText = "CRITICAL ERROR: Failed to parse required environment parameters from payment engine infrastructure.";
+            .catch(() => {
+                document.getElementById('loadingState').innerText = "Unable to load site configuration. Please try again shortly.";
             });
     });
 
@@ -179,10 +204,20 @@
         document.getElementById('lblPrice').innerText = `$${targetRecordData.price.toFixed(2)}`;
 
         document.getElementById('checkoutFormContent').style.display = 'block';
+
+        if (!siteConfig.paypal_checkout_enabled) {
+            document.getElementById('paypal-button-wrapper').style.display = 'none';
+            document.getElementById('paymentsPausedNotice').style.display = 'block';
+            return;
+        }
+
+        document.getElementById('paymentsPausedNotice').style.display = 'none';
+        document.getElementById('paypal-button-wrapper').style.display = 'block';
         initializePaypalButtons();
     }
 
     function togglePaypalState() {
+        if (!siteConfig.paypal_checkout_enabled) return;
         const waiverChecked = document.getElementById('waiverCheckbox').checked;
         if (waiverChecked) {
             document.getElementById('paypalDisabledOverlay').style.display = 'none';
@@ -206,8 +241,18 @@
             createOrder: function(data, actions) {
                 return actions.order.create({
                     purchase_units: [{
-                        amount: { value: targetRecordData.price.toString() }
-                    }]
+                        amount: { currency_code: 'USD', value: targetRecordData.price.toString() },
+                        description: targetRecordData.title || 'Hockey Training Session'
+                    }],
+                    payment_source: {
+                        paypal: {
+                            experience_context: {
+                                shipping_preference: 'NO_SHIPPING',
+                                brand_name: 'Ben Stadey Hockey Training',
+                                user_action: 'PAY_NOW'
+                            }
+                        }
+                    }
                 });
             },
             onApprove: function(data, actions) {

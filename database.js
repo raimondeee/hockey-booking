@@ -71,6 +71,11 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )`);
+
     // ==========================================
     // SAFE LIVE DATABASE MIGRATIONS
     // ==========================================
