@@ -584,6 +584,56 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
     });
 });
 
+// 5a. Admin Portal: Update an existing session (time, location, price, etc.)
+app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
+    const sessionId = req.params.id;
+    const { title, start_time, end_time, price, event_type, access_code, location } = req.body;
+
+    if (!title || !start_time || !end_time) {
+        return res.status(400).json({ error: 'Title, start time, and end time are required.' });
+    }
+    if (new Date(end_time) <= new Date(start_time)) {
+        return res.status(400).json({ error: 'End time must be after start time.' });
+    }
+    if (price == null || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
+        return res.status(400).json({ error: 'A valid session price is required.' });
+    }
+
+    const type = event_type || 'large';
+    const cleanAccessCode = access_code && access_code.trim() ? access_code.trim() : null;
+
+    db.get(
+        `SELECT s.custom_capacity,
+            (SELECT COUNT(*) FROM bookings WHERE session_id = s.id AND status = 'active') AS active_count
+         FROM sessions s WHERE s.id = ?`,
+        [sessionId],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'Session not found.' });
+
+            const maxActive = row.custom_capacity ? row.custom_capacity : (type === 'small' ? 5 : 25);
+            if (row.active_count > maxActive) {
+                return res.status(400).json({
+                    error: `This session has ${row.active_count} active skaters, which exceeds the ${maxActive}-player limit for the selected format. Increase max roster or remove skaters first.`
+                });
+            }
+
+            db.run(
+                `UPDATE sessions
+                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?
+                 WHERE id = ?`,
+                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, sessionId],
+                function(updateErr) {
+                    if (updateErr) return res.status(500).json({ error: updateErr.message });
+                    if (this.changes === 0) return res.status(404).json({ error: 'Session not found.' });
+                    promoteNextWaitlistPlayer(sessionId);
+                    res.json({ success: true, message: 'Session updated successfully.' });
+                }
+            );
+        }
+    );
+});
+
 // 5b. Admin Portal: Override capacity settings on an individual session block level
 app.post('/api/admin/sessions/:id/capacity', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;

@@ -303,6 +303,7 @@
         </div>
     </div>
 
+    <button id="editSessionBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:20px;" onclick="openEditSessionModal()">✏️ Edit Session Details</button>
     <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
 </div>
 
@@ -334,7 +335,7 @@
 
 <div class="modal" id="createSlotModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
-    <h3>Create New Training Time Slot</h3>
+    <h3 id="sessionFormTitle">Create New Training Time Slot</h3>
     <div class="input-group"><label>Event Title</label><input type="text" id="newTitle" placeholder="e.g., Power Skating"></div>
     <div class="input-group">
         <label>Event Group Classification</label>
@@ -355,7 +356,7 @@
     <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
     <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
     <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="40.00"></div>
-    <button class="btn btn-primary" style="width:100%;" onclick="submitCreateSlot()">Publish Slot to Calendar</button>
+    <button class="btn btn-primary" id="sessionFormSubmitBtn" style="width:100%;" onclick="submitSessionSlot()">Publish Slot to Calendar</button>
 </div>
 
 <div class="modal" id="couponManagerModal">
@@ -380,6 +381,7 @@
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
+    let sessionFormMode = 'create';
 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
@@ -453,6 +455,7 @@
                                 backgroundColor: bg,
                                 borderColor: border,
                                 extendedProps: { 
+                                    sessionTitle: session.title,
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
                                     price: session.price,
@@ -631,6 +634,7 @@
 
         if (adminToken) {
             document.getElementById('parentFormFields').style.display = 'none';
+            document.getElementById('editSessionBtn').style.display = 'block';
             document.getElementById('deleteSessionBtn').style.display = 'block';
             document.getElementById('coachRosterPanel').style.display = 'block';
             document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
@@ -642,6 +646,7 @@
             loadActiveRosterDashboard(event.id);
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
+            document.getElementById('editSessionBtn').style.display = 'none';
             document.getElementById('deleteSessionBtn').style.display = 'none';
             document.getElementById('coachRosterPanel').style.display = 'none';
             
@@ -750,31 +755,98 @@
     }
 
     function submitWaitlist() { submitBooking(null); }
-    
+
+    function toDatetimeLocalValue(isoString) {
+        if (!isoString) return '';
+        const d = new Date(isoString);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function setSessionFormMode(mode) {
+        sessionFormMode = mode;
+        document.getElementById('sessionFormTitle').innerText = mode === 'edit'
+            ? 'Edit Training Session'
+            : 'Create New Training Time Slot';
+        document.getElementById('sessionFormSubmitBtn').innerText = mode === 'edit'
+            ? 'Save Changes'
+            : 'Publish Slot to Calendar';
+    }
+
     function openCreateSlotModal(dateStr) {
+        setSessionFormMode('create');
+        document.getElementById('newTitle').value = '';
+        document.getElementById('newAccessCode').value = '';
         document.getElementById('newStart').value = `${dateStr}T17:00`;
         document.getElementById('newEnd').value = `${dateStr}T18:30`;
-        document.getElementById('newLocation').selectedIndex = 0; 
+        document.getElementById('newPrice').value = '40.00';
+        document.getElementById('newEventType').value = 'large';
+        document.getElementById('newLocation').selectedIndex = 0;
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('createSlotModal').style.display = 'block';
+    }
+
+    function openEditSessionModal() {
+        if (!selectedEvent) return;
+        const props = selectedEvent.extendedProps;
+        setSessionFormMode('edit');
+        document.getElementById('newTitle').value = props.sessionTitle || selectedEvent.title.split('(')[0].replace(/^🔒\s*/, '').trim();
+        document.getElementById('newEventType').value = props.event_type || 'large';
+        document.getElementById('newLocation').value = props.location || 'Sherwood Ice Arena';
+        document.getElementById('newAccessCode').value = props.access_code || '';
+        document.getElementById('newStart').value = toDatetimeLocalValue(selectedEvent.start);
+        document.getElementById('newEnd').value = toDatetimeLocalValue(selectedEvent.end);
+        document.getElementById('newPrice').value = parseFloat(props.price || 0).toFixed(2);
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
     }
     
-    function submitCreateSlot() {
+    function submitSessionSlot() {
+        const startVal = document.getElementById('newStart').value;
+        const endVal = document.getElementById('newEnd').value;
+        if (!startVal || !endVal) {
+            alert('Please set both start and end times.');
+            return;
+        }
+        if (new Date(endVal) <= new Date(startVal)) {
+            alert('End time must be after start time.');
+            return;
+        }
+
         const payload = {
             token: adminToken,
-            title: document.getElementById('newTitle').value || "Skills Session",
+            title: document.getElementById('newTitle').value.trim() || 'Skills Session',
             event_type: document.getElementById('newEventType').value,
-            location: document.getElementById('newLocation').value, 
+            location: document.getElementById('newLocation').value,
             access_code: document.getElementById('newAccessCode').value,
-            start_time: document.getElementById('newStart').value,
-            end_time: document.getElementById('newEnd').value,
+            start_time: startVal,
+            end_time: endVal,
             price: parseFloat(document.getElementById('newPrice').value)
         };
-        fetch('/api/admin/sessions', {
-            method: 'POST',
+
+        const url = sessionFormMode === 'edit'
+            ? `/api/admin/sessions/${selectedEvent.id}`
+            : '/api/admin/sessions';
+        const method = sessionFormMode === 'edit' ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                closeAllModals();
+                calendar.refetchEvents();
+                if (sessionFormMode === 'edit') {
+                    alert(data.message || 'Session updated.');
+                }
+            } else {
+                alert(data.error || 'Could not save session.');
+            }
+        })
+        .catch(() => alert('Network error while saving session.'));
     }
 
     function submitCustomCapacityOverride() {
