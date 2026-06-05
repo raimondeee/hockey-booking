@@ -109,6 +109,8 @@ function getPayPalHost() {
         : 'https://api-m.sandbox.paypal.com';
 }
 
+const OFFLINE_PAYMENT_WAITLIST_CAP = 40;
+
 const DEFAULT_SITE_SETTINGS = {
     paypal_checkout_enabled: '1',
     banner_enabled: '0',
@@ -135,7 +137,8 @@ function getSiteSettings() {
             resolve({
                 paypal_checkout_enabled: raw.paypal_checkout_enabled !== '0',
                 banner_enabled: raw.banner_enabled === '1',
-                banner_message: raw.banner_message || DEFAULT_SITE_SETTINGS.banner_message
+                banner_message: raw.banner_message || DEFAULT_SITE_SETTINGS.banner_message,
+                offline_waitlist_cap: OFFLINE_PAYMENT_WAITLIST_CAP
             });
         });
     });
@@ -488,7 +491,8 @@ app.get('/api/config/site', async (req, res) => {
         res.json({
             paypal_checkout_enabled: settings.paypal_checkout_enabled,
             banner_enabled: settings.banner_enabled,
-            banner_message: settings.banner_message
+            banner_message: settings.banner_message,
+            offline_waitlist_cap: settings.offline_waitlist_cap
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -597,6 +601,9 @@ app.post('/api/book', async (req, res) => {
             // Honor custom_capacity override if configured, otherwise drop back to template standards
             let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 5 : 25);
             let maxWaitlist = session.event_type === 'small' ? 3 : 15;
+            if (!siteSettings.paypal_checkout_enabled) {
+                maxWaitlist = OFFLINE_PAYMENT_WAITLIST_CAP;
+            }
 
             // Handle the unique checkout flow for a waitlist player claiming an active position hold
             if (existing_booking_id) {
@@ -648,7 +655,9 @@ app.post('/api/book', async (req, res) => {
 
                 if (!siteSettings.paypal_checkout_enabled) {
                     if (counts.waitlist >= maxWaitlist) {
-                        return res.status(400).json({ error: `This training session waitlist is completely full.` });
+                        return res.status(400).json({
+                            error: `This training session waitlist is completely full (${maxWaitlist} players while online checkout is paused).`
+                        });
                     }
                     status = 'waitlist';
                     storedOrderId = 'WAITLIST_FREE';

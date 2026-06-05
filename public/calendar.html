@@ -382,6 +382,20 @@
     <button class="btn btn-primary" id="sessionFormSubmitBtn" style="width:100%;" onclick="submitSessionSlot()">Publish Slot to Calendar</button>
 </div>
 
+<div class="modal" id="offlinePaymentReminderModal" style="max-width: 440px; display: none;">
+    <h3 style="margin-top: 0; color: #0070ba;">You're on the Waitlist</h3>
+    <p style="font-size: 14px; line-height: 1.55; color: #444; margin: 0 0 14px 0;">
+        Your registration was received, but your spot is <strong>not confirmed</strong> until payment is completed.
+    </p>
+    <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 14px; font-size: 13px; line-height: 1.5; color: #856404; margin-bottom: 16px;">
+        <strong>Next step:</strong> Contact Coach Ben to arrange payment. Once payment is received, Ben will move you from the waitlist to the <strong>active / confirmed roster</strong>.
+    </div>
+    <p style="font-size: 14px; margin: 0 0 18px 0;">
+        <a href="mailto:ben@benstadeyhockey.com?subject=Complete%20Training%20Payment" style="color: #0070ba; font-weight: bold;">ben@benstadeyhockey.com</a>
+    </p>
+    <button class="btn btn-primary" style="width: 100%;" onclick="closeOfflinePaymentReminderModal()">Got it</button>
+</div>
+
 <div class="modal" id="couponManagerModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
     <h3>🎟️ Promo & Coupon Vault</h3>
@@ -406,7 +420,7 @@
     let verifiedDiscountAmount = 0;
     let currentRosterData = null;
     let sessionFormMode = 'create';
-    let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '' };
+    let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '', offline_waitlist_cap: 40 };
 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
@@ -459,8 +473,13 @@
                         const events = filteredData.map(session => {
                             const isSmallGroup = session.event_type === 'small';
                             const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 5 : 25);
-                            const targetWaitlistCap = isSmallGroup ? 3 : 15;
-                            const isFull = session.active_count >= targetCap;
+                            const checkoutPaused = !siteConfig.paypal_checkout_enabled;
+                            const targetWaitlistCap = checkoutPaused
+                                ? (siteConfig.offline_waitlist_cap || 40)
+                                : (isSmallGroup ? 3 : 15);
+                            const isFull = checkoutPaused
+                                ? session.waitlist_count >= targetWaitlistCap
+                                : session.active_count >= targetCap;
                             const isLocked = session.access_code && session.access_code !== "";
                             const titlePrefix = isLocked ? "🔒 " : "";
 
@@ -759,6 +778,7 @@
             feedback.innerText = 'Settings saved.';
             if (window.SiteBanner) SiteBanner.load();
             validateForm();
+            if (calendar) calendar.refetchEvents();
             setTimeout(() => { feedback.innerText = ''; }, 2500);
         })
         .catch(() => {
@@ -873,14 +893,18 @@
                 return;
             }
             if (data.status === 'active') {
+                closeAllModals();
                 alert('Spot confirmed!');
+                calendar.refetchEvents();
             } else if (!siteConfig.paypal_checkout_enabled) {
-                alert('Registration received! You are on the waitlist. Coach Ben will confirm your spot after offline payment is arranged.');
+                closeAllModals();
+                calendar.refetchEvents();
+                openOfflinePaymentReminderModal();
             } else {
+                closeAllModals();
                 alert('Player placed on waitlist.');
+                calendar.refetchEvents();
             }
-            closeAllModals();
-            calendar.refetchEvents();
         });
     }
 
@@ -1416,6 +1440,16 @@
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    function openOfflinePaymentReminderModal() {
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('offlinePaymentReminderModal').style.display = 'block';
+    }
+
+    function closeOfflinePaymentReminderModal() {
+        document.getElementById('offlinePaymentReminderModal').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+    }
+
     function closeAllModals() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';
@@ -1424,6 +1458,7 @@
         document.getElementById('createSlotModal').style.display = 'none';
         document.getElementById('couponManagerModal').style.display = 'none';
         document.getElementById('refundModal').style.display = 'none';
+        document.getElementById('offlinePaymentReminderModal').style.display = 'none';
         refundTargetBookingId = null;
         
         const passInput = document.getElementById('adminPass');
