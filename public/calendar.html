@@ -129,6 +129,74 @@
         
         #contactCoachLink { color: #666; padding: 5px 0; }
 
+        /* Coach session management — wider + 25% larger UI on desktop */
+        @media (min-width: 901px) {
+            #bookingModal.modal-coach-desktop,
+            #createSlotModal.modal-coach-desktop,
+            #refundModal.modal-coach-desktop {
+                max-width: 900px;
+                width: 92%;
+                padding: 32px;
+                font-size: 17.5px;
+            }
+            #bookingModal.modal-coach-desktop h3,
+            #createSlotModal.modal-coach-desktop h3,
+            #refundModal.modal-coach-desktop h3 {
+                font-size: 1.45em;
+            }
+            #bookingModal.modal-coach-desktop .close-btn,
+            #createSlotModal.modal-coach-desktop .close-btn,
+            #refundModal.modal-coach-desktop .close-btn {
+                font-size: 1.5em;
+            }
+            #bookingModal.modal-coach-desktop .input-group label,
+            #createSlotModal.modal-coach-desktop .input-group label {
+                font-size: 1em;
+            }
+            #bookingModal.modal-coach-desktop .input-group input,
+            #bookingModal.modal-coach-desktop .input-group select,
+            #bookingModal.modal-coach-desktop .input-group textarea,
+            #createSlotModal.modal-coach-desktop .input-group input,
+            #createSlotModal.modal-coach-desktop .input-group select {
+                padding: 10px;
+                font-size: 1em;
+            }
+            #bookingModal.modal-coach-desktop .btn,
+            #createSlotModal.modal-coach-desktop .btn,
+            #refundModal.modal-coach-desktop .btn {
+                padding: 12px 18px;
+                font-size: 1em;
+            }
+            #bookingModal.modal-coach-desktop #modalLocation,
+            #bookingModal.modal-coach-desktop #modalStatus {
+                font-size: 1em !important;
+            }
+            #bookingModal.modal-coach-desktop #coachRosterPanel h4 {
+                font-size: 1.1em !important;
+            }
+            #bookingModal.modal-coach-desktop #coachRosterPanel table {
+                font-size: 1em !important;
+            }
+            #bookingModal.modal-coach-desktop #coachRosterPanel table .btn {
+                font-size: 0.85em !important;
+                padding: 6px 12px !important;
+            }
+            #bookingModal.modal-coach-desktop #coachRosterPanel label,
+            #bookingModal.modal-coach-desktop #coachRosterPanel span,
+            #bookingModal.modal-coach-desktop #coachRosterPanel p {
+                font-size: 1em !important;
+            }
+            #bookingModal.modal-coach-desktop #customCapacityInput {
+                width: 72px !important;
+                padding: 8px !important;
+                font-size: 1em !important;
+            }
+            #bookingModal.modal-coach-desktop #settingBannerMessage {
+                font-size: 1em !important;
+                padding: 10px !important;
+            }
+        }
+
         @media (max-width: 600px) {
             body { padding-bottom: 120px; }
             .header-bar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 20px; }
@@ -173,7 +241,7 @@
     <a href="/refunds.html" id="linkRefundsCenter" style="display: none; color: #17a2b8; background: #fff; padding: 6px 12px; border: 1px solid #17a2b8; border-radius: 4px; margin-left: 8px;">💸 PayPal Refunds Center →</a>
 </div>
 
-<div class="modal-overlay" id="overlay" onclick="closeAllModals()"></div>
+<div class="modal-overlay" id="overlay" onclick="handleOverlayClick()"></div>
 
 <div class="modal" id="loginModal">
     <span class="close-btn" onclick="closeAllModals()">&times;</span>
@@ -277,13 +345,14 @@
         <div style="background: #e8f4fc; border: 1px solid #90cdf4; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
             <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #2b6cb0;">⚙️ Site Checkout &amp; Notices</h4>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
-                <input type="checkbox" id="settingPaypalEnabled" onchange="saveSiteSettings()"> PayPal checkout enabled (when off, all registrations go to waitlist for manual confirmation)
+                <input type="checkbox" id="settingPaypalEnabled"> PayPal checkout enabled (when off, all registrations go to waitlist for manual confirmation)
             </label>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
-                <input type="checkbox" id="settingBannerEnabled" onchange="saveSiteSettings()"> Show notice banner to parents
+                <input type="checkbox" id="settingBannerEnabled"> Show notice banner to parents
             </label>
             <label style="display:block; font-size:11px; font-weight:bold; color:#4a5568; text-transform:uppercase; margin-bottom:4px;">Banner message</label>
-            <textarea id="settingBannerMessage" rows="3" style="width:100%; padding:8px; box-sizing:border-box; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:inherit; resize:vertical;" onblur="saveSiteSettings()"></textarea>
+            <textarea id="settingBannerMessage" rows="3" style="width:100%; padding:8px; box-sizing:border-box; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:inherit; resize:vertical;"></textarea>
+            <button type="button" class="btn btn-primary" style="width:100%; margin-top:10px; font-size:12px;" onclick="confirmSaveSiteSettings()">Save Site Settings</button>
             <p id="siteSettingsFeedback" style="font-size:11px; color:#2f855a; margin:8px 0 0 0; min-height:14px;"></p>
         </div>
 
@@ -438,6 +507,14 @@
         });
         
         if (adminToken) { applyCoachUIMode(true); }
+
+        window.addEventListener('resize', () => {
+            if (document.getElementById('bookingModal').style.display === 'block'
+                || document.getElementById('createSlotModal').style.display === 'block'
+                || document.getElementById('refundModal').style.display === 'block') {
+                setCoachModalLayout();
+            }
+        });
 
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
@@ -665,9 +742,28 @@
         openBookingModal(selectedEvent);
     }
 
+    function coachConfirm(message) {
+        return window.confirm(message);
+    }
+
+    function handleOverlayClick() {
+        if (document.getElementById('bookingModal').style.display === 'block' && adminToken) return;
+        if (document.getElementById('createSlotModal').style.display === 'block') return;
+        if (document.getElementById('refundModal').style.display === 'block') return;
+        closeAllModals();
+    }
+
+    function setCoachModalLayout() {
+        const isDesktop = window.matchMedia('(min-width: 901px)').matches;
+        document.getElementById('bookingModal').classList.toggle('modal-coach-desktop', !!adminToken && isDesktop);
+        document.getElementById('createSlotModal').classList.toggle('modal-coach-desktop', isDesktop);
+        document.getElementById('refundModal').classList.toggle('modal-coach-desktop', isDesktop);
+    }
+
     function openBookingModal(event) {
         selectedEvent = event;
         const props = event.extendedProps;
+        setCoachModalLayout();
         document.getElementById('modalTitle').innerText = event.title;
         
         const solvedVenueName = props.location || "Location Unassigned";
@@ -750,6 +846,21 @@
         paypalEl.checked = !!siteConfig.paypal_checkout_enabled;
         bannerEl.checked = !!siteConfig.banner_enabled;
         messageEl.value = siteConfig.banner_message || '';
+    }
+
+    function confirmSaveSiteSettings() {
+        if (!adminToken) return;
+        const paypalOn = document.getElementById('settingPaypalEnabled').checked;
+        const bannerOn = document.getElementById('settingBannerEnabled').checked;
+        const summary = [
+            `PayPal checkout: ${paypalOn ? 'ON' : 'OFF (waitlist-only mode)'}`,
+            `Parent banner: ${bannerOn ? 'ON' : 'OFF'}`
+        ].join('\n');
+        if (!coachConfirm(`Save these site settings?\n\n${summary}`)) {
+            syncCoachSiteSettingsForm();
+            return;
+        }
+        saveSiteSettings();
     }
 
     function saveSiteSettings() {
@@ -929,6 +1040,7 @@
 
     function openCreateSlotModal(dateStr) {
         setSessionFormMode('create');
+        setCoachModalLayout();
         document.getElementById('newTitle').value = '';
         document.getElementById('newAccessCode').value = '';
         document.getElementById('newStart').value = `${dateStr}T17:00`;
@@ -944,6 +1056,7 @@
         if (!selectedEvent) return;
         const props = selectedEvent.extendedProps;
         setSessionFormMode('edit');
+        setCoachModalLayout();
         document.getElementById('newTitle').value = props.sessionTitle || selectedEvent.title.split('(')[0].replace(/^🔒\s*/, '').trim();
         document.getElementById('newEventType').value = props.event_type || 'large';
         document.getElementById('newLocation').value = props.location || 'Sherwood Ice Arena';
@@ -966,6 +1079,12 @@
             alert('End time must be after start time.');
             return;
         }
+
+        const title = document.getElementById('newTitle').value.trim() || 'Skills Session';
+        const confirmMessage = sessionFormMode === 'edit'
+            ? `Save changes to "${title}"?\n\nThis updates the session on the live calendar.`
+            : `Publish new session "${title}" to the calendar?`;
+        if (!coachConfirm(confirmMessage)) return;
 
         const payload = {
             token: adminToken,
@@ -1006,6 +1125,7 @@
     function submitCustomCapacityOverride() {
         const capVal = document.getElementById('customCapacityInput').value;
         if (!capVal || capVal < 1) return;
+        if (!coachConfirm(`Set max active roster for this session to ${capVal} players?`)) return;
 
         fetch(`/api/admin/sessions/${selectedEvent.id}/capacity`, {
             method: 'POST',
@@ -1023,7 +1143,8 @@
     }
     
     function deleteCurrentSession() {
-        if(!confirm("Permanently cancel this session?")) return;
+        const sessionLabel = selectedEvent ? selectedEvent.title.split('(')[0].trim() : 'this session';
+        if (!coachConfirm(`Permanently delete "${sessionLabel}" and ALL registrations?\n\nThis cannot be undone.`)) return;
         fetch(`/api/admin/sessions/${selectedEvent.id}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -1055,7 +1176,7 @@
                 html += `<tr style='border-bottom:1px solid #eee; height:35px;'>
                     <td style='padding:8px; font-weight:bold;'>${c.code}</td>
                     <td style='padding:8px;'>${c.discount_value}${sym}</td>
-                    <td style='text-align:center;'><button class='btn btn-danger' style='padding:2px 6px; font-size:11px;' onclick='deleteCouponFromVault(${c.id})'>Revoke</button></td>
+                    <td style='text-align:center;'><button class='btn btn-danger' style='padding:2px 6px; font-size:11px;' onclick='deleteCouponFromVault(${c.id}, "${c.code.replace(/"/g, '&quot;')}")'>Revoke</button></td>
                 </tr>`;
             });
             html += `</table>`;
@@ -1068,6 +1189,8 @@
         const type = document.getElementById('newCouponType').value;
         const val = document.getElementById('newCouponValue').value;
         if(!code || !val) return;
+        const sym = type === 'fixed' ? '$' : '%';
+        if (!coachConfirm(`Create promo code "${code.toUpperCase()}" (${val}${sym})?`)) return;
 
         fetch('/api/admin/coupons/create', {
             method: 'POST',
@@ -1076,7 +1199,8 @@
         }).then(res => res.json()).then(() => { document.getElementById('newCouponCode').value = ''; document.getElementById('newCouponValue').value = ''; loadCouponVaultList(); });
     }
 
-    function deleteCouponFromVault(id) {
+    function deleteCouponFromVault(id, code) {
+        if (!coachConfirm(`Revoke coupon code "${code}"? Existing bookings are not affected.`)) return;
         fetch(`/api/admin/coupons/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => loadCouponVaultList());
     }
 
@@ -1112,8 +1236,8 @@
                         <td>${index + 1}. <b>${p.player_name}</b>${offlinePaid ? ` <span style='font-size:10px; color:#2f855a;'>(offline pay)</span>` : ''}</td>
                         <td style='text-align:right;'>
                             ${refundBtn}
-                            <button class='btn' style='background:#ffc107; padding:3px 6px; font-size:10px;' onclick='demotePlayerToWaitlist(${p.id})'>Waitlist</button>
-                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
+                            <button class='btn' style='background:#ffc107; padding:3px 6px; font-size:10px;' onclick='demotePlayerToWaitlist(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}")'>Waitlist</button>
+                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px;' onclick='removePlayerFromRoster(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}")'>Remove</button>
                         </td>
                     </tr>`;
                 });
@@ -1145,10 +1269,10 @@
                             ${!siteConfig.paypal_checkout_enabled && !isPending ? `<br><span style='color:#4a5568; font-size:10px; font-style:italic;'>Awaiting offline payment confirmation.</span>` : ''}
                         </td>
                         <td style='text-align:right; padding-right:8px; white-space:nowrap;'>
-                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, -1)'>▲</button>
-                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, 1)'>▼</button>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, -1, "${p.player_name.replace(/"/g, '&quot;')}")'>▲</button>
+                            <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, 1, "${p.player_name.replace(/"/g, '&quot;')}")'>▼</button>
                             ${promoteBtn}
-                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px; margin-left:4px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
+                            <button class='btn btn-danger' style='padding:3px 6px; font-size:10px; margin-left:4px;' onclick='removePlayerFromRoster(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}")'>Remove</button>
                         </td>
                     </tr>`;
                 });
@@ -1177,9 +1301,12 @@
         });
     }
 
-    function shiftQueueOrder(currentIndex, directionalShift) {
+    function shiftQueueOrder(currentIndex, directionalShift, playerName) {
         const targetIndex = currentIndex + directionalShift;
         if (targetIndex < 0 || targetIndex >= currentRosterData.waitlist.length) return;
+
+        const directionLabel = directionalShift < 0 ? 'up' : 'down';
+        if (!coachConfirm(`Move ${playerName} ${directionLabel} on the waitlist?`)) return;
 
         const temp = currentRosterData.waitlist[currentIndex];
         currentRosterData.waitlist[currentIndex] = currentRosterData.waitlist[targetIndex];
@@ -1200,12 +1327,13 @@
         });
     }
 
-    function removePlayerFromRoster(bookingId) {
-        if (!confirm("Remove player?")) return;
+    function removePlayerFromRoster(bookingId, playerName) {
+        if (!coachConfirm(`Remove ${playerName || 'this player'} from the session?\n\nThis deletes their registration.`)) return;
         fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
-    function demotePlayerToWaitlist(bookingId) {
+    function demotePlayerToWaitlist(bookingId, playerName) {
+        if (!coachConfirm(`Move ${playerName || 'this player'} from active roster to the waitlist?`)) return;
         fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
@@ -1273,7 +1401,7 @@
             return;
         }
 
-        if (!confirm("Broadcast this email update to the full roster immediately?")) return;
+        if (!coachConfirm(`Send this email to the full roster now?\n\nSubject: ${subject}`)) return;
 
         const sendBtn = event.target;
         const originalBtnText = sendBtn.innerText;
@@ -1334,6 +1462,7 @@
 
     function toggleAuthField() {
         if(adminToken) {
+            if (!coachConfirm('Log out of Coach Portal?')) return;
             adminToken = null;
             localStorage.removeItem('coach_admin_token'); 
             applyCoachUIMode(false);
@@ -1368,6 +1497,7 @@
     let refundTargetBookingId = null;
 
     function openRefundModal(bookingId, playerName, sessionPrice) {
+        setCoachModalLayout();
         refundTargetBookingId = bookingId;
         document.getElementById('refundPlayerLabel').innerText = `Player: ${playerName}`;
         document.getElementById('refundAmountInput').value = parseFloat(sessionPrice).toFixed(2);
@@ -1390,6 +1520,11 @@
         const amount = parseFloat(document.getElementById('refundAmountInput').value);
         if (!amount || amount <= 0) {
             alert("Please enter a valid refund amount.");
+            return;
+        }
+
+        const playerLabel = document.getElementById('refundPlayerLabel').innerText.replace('Player: ', '');
+        if (!coachConfirm(`Issue a $${amount.toFixed(2)} PayPal refund for ${playerLabel}?\n\nThis sends real money immediately and cannot be undone.`)) {
             return;
         }
 
@@ -1455,9 +1590,12 @@
         document.getElementById('loginModal').style.display = 'none';
         document.getElementById('eventOverviewModal').style.display = 'none';
         document.getElementById('bookingModal').style.display = 'none';
+        document.getElementById('bookingModal').classList.remove('modal-coach-desktop');
         document.getElementById('createSlotModal').style.display = 'none';
+        document.getElementById('createSlotModal').classList.remove('modal-coach-desktop');
         document.getElementById('couponManagerModal').style.display = 'none';
         document.getElementById('refundModal').style.display = 'none';
+        document.getElementById('refundModal').classList.remove('modal-coach-desktop');
         document.getElementById('offlinePaymentReminderModal').style.display = 'none';
         refundTargetBookingId = null;
         
