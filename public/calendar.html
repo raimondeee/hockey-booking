@@ -263,21 +263,21 @@
         </div>
 
         <div id="paymentsPausedNotice">
-            Online checkout is temporarily unavailable. Please contact
-            <a href="mailto:ben@benstadeyhockey.com?subject=Registration%20%2F%20Payment">Ben at ben@benstadeyhockey.com</a>
-            to register and arrange payment for this session.
+            Online checkout is temporarily unavailable. Submit the form below to join the waitlist.
+            Coach Ben will move you to the active roster after offline payment is received.
+            Questions? Email <a href="mailto:ben@benstadeyhockey.com?subject=Registration%20%2F%20Payment">ben@benstadeyhockey.com</a>.
         </div>
 
         <button id="freeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitBooking(null)">Complete Free Registration</button>
         
-        <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
+        <button id="waitlistBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitWaitlist()" disabled>Join Waitlist (Free)</button>
     </div>
 
     <div id="coachRosterPanel" style="display: none; margin-top: 15px;">
         <div style="background: #e8f4fc; border: 1px solid #90cdf4; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
             <h4 style="margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #2b6cb0;">⚙️ Site Checkout &amp; Notices</h4>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
-                <input type="checkbox" id="settingPaypalEnabled" onchange="saveSiteSettings()"> PayPal checkout enabled (parents can pay online)
+                <input type="checkbox" id="settingPaypalEnabled" onchange="saveSiteSettings()"> PayPal checkout enabled (when off, all registrations go to waitlist for manual confirmation)
             </label>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; margin-bottom:8px; cursor:pointer;">
                 <input type="checkbox" id="settingBannerEnabled" onchange="saveSiteSettings()"> Show notice banner to parents
@@ -582,36 +582,36 @@
         }
 
         const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
-        document.getElementById('waitlistBtn').disabled = !isFormValid;
+        const waitlistBtn = document.getElementById('waitlistBtn');
+        waitlistBtn.disabled = !isFormValid;
 
         const sessionFull = selectedEvent && selectedEvent.extendedProps.activeCount >= selectedEvent.extendedProps.maxActive;
         const checkoutPaused = !siteConfig.paypal_checkout_enabled;
         const pausedNotice = document.getElementById('paymentsPausedNotice');
-        pausedNotice.style.display = 'none';
+        const showWaitlistPath = checkoutPaused || sessionFull;
 
-        if (currentSessionPrice <= 0 && selectedEvent && !sessionFull) {
-            document.getElementById('paypal-button-wrapper').style.display = 'none';
+        pausedNotice.style.display = checkoutPaused ? 'block' : 'none';
+        document.getElementById('paypal-button-wrapper').style.display = 'none';
+        document.getElementById('freeSubmitBtn').style.display = 'none';
+
+        if (showWaitlistPath) {
+            waitlistBtn.style.display = 'block';
+            waitlistBtn.innerText = checkoutPaused
+                ? 'Submit Registration (Waitlist)'
+                : 'Join Waitlist (Free)';
+        } else if (currentSessionPrice <= 0 && selectedEvent) {
+            waitlistBtn.style.display = 'none';
             document.getElementById('freeSubmitBtn').style.display = isFormValid ? 'block' : 'none';
             document.getElementById('freeSubmitBtn').disabled = !isFormValid;
         } else {
-            document.getElementById('freeSubmitBtn').style.display = 'none';
-            if (sessionFull) {
-                document.getElementById('paypal-button-wrapper').style.display = 'none';
-            } else if (checkoutPaused) {
-                document.getElementById('paypal-button-wrapper').style.display = 'none';
-                pausedNotice.style.display = 'block';
+            waitlistBtn.style.display = 'none';
+            document.getElementById('paypal-button-wrapper').style.display = 'block';
+            if (isFormValid) {
+                document.getElementById('paypalDisabledOverlay').style.display = 'none';
+                if (paypalActionsInstance) paypalActionsInstance.enable();
             } else {
-                document.getElementById('paypal-button-wrapper').style.display = 'block';
-            }
-
-            if (!checkoutPaused && !sessionFull) {
-                if (isFormValid) {
-                    document.getElementById('paypalDisabledOverlay').style.display = 'none';
-                    if (paypalActionsInstance) paypalActionsInstance.enable();
-                } else {
-                    document.getElementById('paypalDisabledOverlay').style.display = 'block';
-                    if (paypalActionsInstance) paypalActionsInstance.disable();
-                }
+                document.getElementById('paypalDisabledOverlay').style.display = 'block';
+                if (paypalActionsInstance) paypalActionsInstance.disable();
             }
         }
     }
@@ -696,13 +696,14 @@
                 document.getElementById('accessCodeWrapper').style.display = 'none';
             }
 
-            if (props.activeCount >= props.maxActive) {
+            document.getElementById('waitlistBtn').style.display = 'none';
+            document.getElementById('freeSubmitBtn').style.display = 'none';
+            document.getElementById('paymentsPausedNotice').style.display = 'none';
+
+            if (!siteConfig.paypal_checkout_enabled || props.activeCount >= props.maxActive) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
-                document.getElementById('waitlistBtn').style.display = 'block';
-            } else if (siteConfig.paypal_checkout_enabled) {
+            } else if (props.price > 0) {
                 injectPayPalScriptDynamic();
-            } else {
-                document.getElementById('paypal-button-wrapper').style.display = 'none';
             }
         }
         validateForm();
@@ -871,7 +872,13 @@
                 alert(data.error);
                 return;
             }
-            alert(data.status === 'active' ? 'Spot confirmed!' : 'Player placed on waitlist.');
+            if (data.status === 'active') {
+                alert('Spot confirmed!');
+            } else if (!siteConfig.paypal_checkout_enabled) {
+                alert('Registration received! You are on the waitlist. Coach Ben will confirm your spot after offline payment is arranged.');
+            } else {
+                alert('Player placed on waitlist.');
+            }
             closeAllModals();
             calendar.refetchEvents();
         });
@@ -1072,12 +1079,13 @@
             else {
                 let html = `<table style='width:100%; font-size:12px; border-collapse:collapse;'>`;
                 data.active.forEach((p, index) => {
-                    const hasPayment = p.paypal_order_id && p.paypal_order_id !== 'WAITLIST_FREE' && p.paypal_order_id !== 'WAIVED_FREE' && !p.paypal_order_id.startsWith('REFUNDED:');
+                    const hasPayment = p.paypal_order_id && p.paypal_order_id !== 'WAITLIST_FREE' && p.paypal_order_id !== 'WAIVED_FREE' && p.paypal_order_id !== 'OFFLINE_PAID' && !p.paypal_order_id.startsWith('REFUNDED:');
+                    const offlinePaid = p.paypal_order_id === 'OFFLINE_PAID';
                     const refundBtn = hasPayment
                         ? `<button class='btn' style='background:#17a2b8; color:white; padding:3px 6px; font-size:10px;' onclick='openRefundModal(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}", ${selectedEvent.extendedProps.price})'>Refund</button>`
                         : '';
                     html += `<tr style='border-bottom:1px solid #eee; height:35px;'>
-                        <td>${index + 1}. <b>${p.player_name}</b></td>
+                        <td>${index + 1}. <b>${p.player_name}</b>${offlinePaid ? ` <span style='font-size:10px; color:#2f855a;'>(offline pay)</span>` : ''}</td>
                         <td style='text-align:right;'>
                             ${refundBtn}
                             <button class='btn' style='background:#ffc107; padding:3px 6px; font-size:10px;' onclick='demotePlayerToWaitlist(${p.id})'>Waitlist</button>
@@ -1101,15 +1109,21 @@
                         rowStyle = "background: #fff3cd;";
                     }
 
+                    const promoteBtn = !siteConfig.paypal_checkout_enabled
+                        ? `<button class='btn' style='background:#28a745; color:white; padding:3px 6px; font-size:10px; margin-left:4px;' onclick='promotePlayerToActive(${p.id}, "${p.player_name.replace(/"/g, '&quot;')}")'>Confirm paid → Active</button>`
+                        : '';
+
                     html += `<tr style='border-bottom:1px solid #eee; height:40px; ${rowStyle}'>
                         <td style='padding:4px 8px;'>
                             <span style='font-weight:bold; font-size:11px; display:inline-block; width:50px;'>${statusLabel}</span>
                             <b>${p.player_name}</b>
                             ${isPending ? `<br><span style='color:#856404; font-size:10px; font-style:italic;'>Notified. Awaiting payment checkout.</span>` : ''}
+                            ${!siteConfig.paypal_checkout_enabled && !isPending ? `<br><span style='color:#4a5568; font-size:10px; font-style:italic;'>Awaiting offline payment confirmation.</span>` : ''}
                         </td>
                         <td style='text-align:right; padding-right:8px; white-space:nowrap;'>
                             <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, -1)'>▲</button>
                             <button class='btn' style='background:#e2e8f0; color:#4a5568; padding:2px 5px; font-size:10px; margin:0;' onclick='shiftQueueOrder(${index}, 1)'>▼</button>
+                            ${promoteBtn}
                             <button class='btn btn-danger' style='padding:3px 6px; font-size:10px; margin-left:4px;' onclick='removePlayerFromRoster(${p.id})'>Remove</button>
                         </td>
                     </tr>`;
@@ -1169,6 +1183,24 @@
 
     function demotePlayerToWaitlist(bookingId) {
         fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
+    }
+
+    function promotePlayerToActive(bookingId, playerName) {
+        if (!confirm(`Move ${playerName} to the active roster? Only do this after offline payment has been received.`)) return;
+        fetch(`/api/admin/bookings/${bookingId}/promote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            loadActiveRosterDashboard(selectedEvent.id);
+            calendar.refetchEvents();
+        });
     }
 
     function exportCurrentRosterToCsv() {

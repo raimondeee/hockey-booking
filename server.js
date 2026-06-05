@@ -78,7 +78,7 @@ function runExpiredReservationsSweep(callback) {
             db.run(`UPDATE bookings SET status = 'waitlist', invitation_sent_at = NULL WHERE id = ?`, [booking.id], (updateErr) => {
                 processedCount++;
                 // Trigger the next person in line to receive an invite for this opening
-                promoteNextWaitlistPlayer(booking.session_id);
+                maybePromoteNextWaitlistPlayer(booking.session_id);
                 
                 if (processedCount === expiredBookings.length && callback) {
                     callback();
@@ -112,7 +112,7 @@ function getPayPalHost() {
 const DEFAULT_SITE_SETTINGS = {
     paypal_checkout_enabled: '1',
     banner_enabled: '0',
-    banner_message: 'Online checkout is temporarily unavailable while our payment provider completes a brief account review. To register or pay for a session, please contact Ben directly at ben@benstadeyhockey.com. We expect online checkout to return soon.'
+    banner_message: 'Online checkout is temporarily unavailable while our payment provider completes a brief account review. You may still register — all signups are placed on the waitlist until Coach Ben confirms your spot after offline payment. Contact ben@benstadeyhockey.com with questions.'
 };
 
 function seedSiteSettingsIfEmpty() {
@@ -166,9 +166,28 @@ function buildPayPalExperienceContext(bookingId) {
 
 function isRefundablePayPalOrder(paypalOrderId) {
     if (!paypalOrderId) return false;
-    if (paypalOrderId === 'WAITLIST_FREE' || paypalOrderId === 'WAIVED_FREE') return false;
+    if (paypalOrderId === 'WAITLIST_FREE' || paypalOrderId === 'WAIVED_FREE' || paypalOrderId === 'OFFLINE_PAID') return false;
     if (paypalOrderId.startsWith('REFUNDED:')) return false;
     return true;
+}
+
+async function maybePromoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
+    try {
+        const siteSettings = await getSiteSettings();
+        if (!siteSettings.paypal_checkout_enabled) {
+            if (optionalResContext) {
+                optionalResContext.json({
+                    success: true,
+                    message: 'Online checkout is paused — move players from the waitlist manually after offline payment.'
+                });
+            }
+            return;
+        }
+    } catch (err) {
+        if (optionalResContext) optionalResContext.status(500).json({ error: err.message });
+        return;
+    }
+    promoteNextWaitlistPlayer(sessionId, optionalResContext, options);
 }
 
 function resolvePayPalOrderId(paypalOrderId) {
@@ -427,7 +446,7 @@ async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
     });
 
     if (promoteWaitlist && booking.status === 'active') {
-        promoteNextWaitlistPlayer(booking.session_id);
+        maybePromoteNextWaitlistPlayer(booking.session_id);
     }
 
     return {
@@ -544,7 +563,7 @@ app.post('/api/book', async (req, res) => {
             return res.status(500).json({ error: "Unable to load site configuration." });
         }
 
-        const checkoutPausedMessage = "Online checkout is temporarily unavailable. Please contact Coach Ben at ben@benstadeyhockey.com to register and arrange payment.";
+        const checkoutPausedMessage = "Online checkout is temporarily unavailable. You have been added to the waitlist — Coach Ben will confirm your spot after payment is arranged offline.";
 
         if (!siteSettings.paypal_checkout_enabled) {
             const isPaidPayPalOrder = paypal_order_id
@@ -625,46 +644,64 @@ app.post('/api/book', async (req, res) => {
                 if (err) return res.status(500).json({ error: err.message });
 
                 let status = 'active';
-                if (counts.active >= maxActive) {
+                let storedOrderId = paypal_order_id || 'WAITLIST_FREE';
+
+                if (!siteSettings.paypal_checkout_enabled) {
+                    if (counts.waitlist >= maxWaitlist) {
+                        return res.status(400).json({ error: `This training session waitlist is completely full.` });
+                    }
+                    status = 'waitlist';
+                    storedOrderId = 'WAITLIST_FREE';
+                } else if (counts.active >= maxActive) {
                     if (counts.waitlist >= maxWaitlist) return res.status(400).json({ error: `This training session and its waitlist bounds are completely full.` });
                     status = 'waitlist';
                 }
 
-                if (!siteSettings.paypal_checkout_enabled && session.price > 0 && paypal_order_id !== 'WAIVED_FREE') {
-                    const unpaidMarker = !paypal_order_id || paypal_order_id === 'WAITLIST_FREE';
-                    if (unpaidMarker && status === 'active') {
-                        return res.status(503).json({ error: checkoutPausedMessage });
-                    }
-                }
+                const finalizeInsert = (queuePosition) => {
+                    const waiverTimestamp = new Date().toISOString();
+                    const waiverAcceptedFlag = 1;
 
-                const waiverTimestamp = new Date().toISOString(); 
-                const waiverAcceptedFlag = 1;
+                    const insertQuery = `
+                        INSERT INTO bookings (
+                            session_id, player_name, parent_name, parent_email,
+                            status, paypal_order_id, waiver_accepted, waiver_timestamp, queue_position
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-                const insertQuery = `
-                    INSERT INTO bookings (
-                        session_id, player_name, parent_name, parent_email, 
-                        status, paypal_order_id, waiver_accepted, waiver_timestamp
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-                db.run(insertQuery, [
-                    session_id, player_name, parent_name, cleanEmail, status, 
-                    paypal_order_id || 'WAITLIST_FREE', waiverAcceptedFlag, waiverTimestamp
-                ], function(err) {
-                    if (err) return res.status(500).json({ error: err.message });
-                    const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
-                    sendBookingConfirmationEmail({
-                        parentEmail: cleanEmail,
-                        parentName: parent_name,
-                        playerName: player_name,
-                        status,
-                        sessionTitle: session.title,
-                        startTime: session.start_time,
-                        location: session.location,
-                        amountPaid,
-                        isWaitlist: status === 'waitlist'
+                    db.run(insertQuery, [
+                        session_id, player_name, parent_name, cleanEmail, status,
+                        storedOrderId, waiverAcceptedFlag, waiverTimestamp, queuePosition
+                    ], function(insertErr) {
+                        if (insertErr) return res.status(500).json({ error: insertErr.message });
+                        const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
+                        sendBookingConfirmationEmail({
+                            parentEmail: cleanEmail,
+                            parentName: parent_name,
+                            playerName: player_name,
+                            status,
+                            sessionTitle: session.title,
+                            startTime: session.start_time,
+                            location: session.location,
+                            amountPaid,
+                            isWaitlist: status === 'waitlist'
+                        });
+                        res.json({ success: true, status: status, booking_id: this.lastID });
                     });
-                    res.json({ success: true, status: status, booking_id: this.lastID });
-                });
+                };
+
+                if (status === 'waitlist') {
+                    db.get(
+                        `SELECT COALESCE(MAX(queue_position), 0) AS max_queue
+                         FROM bookings
+                         WHERE session_id = ? AND status IN ('waitlist', 'pending_payment')`,
+                        [session_id],
+                        (queueErr, queueRow) => {
+                            if (queueErr) return res.status(500).json({ error: queueErr.message });
+                            finalizeInsert((queueRow?.max_queue || 0) + 1);
+                        }
+                    );
+                } else {
+                    finalizeInsert(null);
+                }
             });
         });
     });
@@ -758,7 +795,7 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
                 function(updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.message });
                     if (this.changes === 0) return res.status(404).json({ error: 'Session not found.' });
-                    promoteNextWaitlistPlayer(sessionId);
+                    maybePromoteNextWaitlistPlayer(sessionId);
                     res.json({ success: true, message: 'Session updated successfully.' });
                 }
             );
@@ -775,7 +812,7 @@ app.post('/api/admin/sessions/:id/capacity', verifyAdminToken, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         
         // Immediately run the promotion engine logic to sweep queues for newfound openings!
-        promoteNextWaitlistPlayer(sessionId);
+        maybePromoteNextWaitlistPlayer(sessionId);
         
         res.json({ success: true, message: "Capacity updated and waitlist queue checked dynamically." });
     });
@@ -870,7 +907,7 @@ app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
                 sessionStart: booking.start_time,
                 location: booking.location
             });
-            if (booking.status === 'active') promoteNextWaitlistPlayer(booking.session_id, res);
+            if (booking.status === 'active') maybePromoteNextWaitlistPlayer(booking.session_id, res);
             else res.json({ success: true, message: "Player removed from waitlist successfully." });
         });
     });
@@ -1037,6 +1074,66 @@ app.post('/api/admin/refunds/bulk', verifyAdminToken, async (req, res) => {
     });
 });
 
+// 11a. Admin Portal: Confirm offline payment and move a waitlisted player to the active roster
+app.post('/api/admin/bookings/:id/promote', verifyAdminToken, (req, res) => {
+    db.get(
+        `SELECT b.id, b.session_id, b.status, b.player_name, b.parent_name, b.parent_email,
+                s.title, s.start_time, s.location, s.price, s.event_type, s.custom_capacity
+         FROM bookings b
+         JOIN sessions s ON b.session_id = s.id
+         WHERE b.id = ?`,
+        [req.params.id],
+        (err, booking) => {
+            if (err || !booking) return res.status(404).json({ error: 'Booking record not found.' });
+            if (!['waitlist', 'pending_payment'].includes(booking.status)) {
+                return res.status(400).json({ error: 'Only waitlisted players can be moved to the active roster.' });
+            }
+
+            const maxActive = booking.custom_capacity
+                ? booking.custom_capacity
+                : (booking.event_type === 'small' ? 5 : 25);
+
+            db.get(
+                `SELECT COUNT(*) AS active_count FROM bookings WHERE session_id = ? AND status = 'active'`,
+                [booking.session_id],
+                (countErr, countRow) => {
+                    if (countErr) return res.status(500).json({ error: countErr.message });
+                    if ((countRow?.active_count || 0) >= maxActive) {
+                        return res.status(400).json({ error: `Active roster is full (${maxActive} players). Increase capacity or remove a player first.` });
+                    }
+
+                    db.run(
+                        `UPDATE bookings
+                         SET status = 'active', paypal_order_id = 'OFFLINE_PAID', invitation_sent_at = NULL, queue_position = NULL
+                         WHERE id = ?`,
+                        [booking.id],
+                        function(updateErr) {
+                            if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+                            sendBookingConfirmationEmail({
+                                parentEmail: booking.parent_email,
+                                parentName: booking.parent_name,
+                                playerName: booking.player_name,
+                                status: 'active',
+                                sessionTitle: booking.title,
+                                startTime: booking.start_time,
+                                location: booking.location,
+                                amountPaid: booking.price,
+                                isWaitlist: false
+                            });
+
+                            res.json({
+                                success: true,
+                                message: `${booking.player_name} moved to the active roster (offline payment recorded).`
+                            });
+                        }
+                    );
+                }
+            );
+        }
+    );
+});
+
 // 12. Admin Portal: Push active player down to waitlist and pull next player up
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
     db.get(
@@ -1072,7 +1169,7 @@ app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
                             location: booking.location
                         });
 
-                        promoteNextWaitlistPlayer(booking.session_id, res, { excludeBookingId: Number(req.params.id) });
+                        maybePromoteNextWaitlistPlayer(booking.session_id, res, { excludeBookingId: Number(req.params.id) });
                     }
                 );
             });
