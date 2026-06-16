@@ -112,12 +112,51 @@
             border-color: #dddddd;
         }
 
-        #calendar .fc-event,
-        #calendar .fc-event .fc-event-main,
-        #calendar .fc-event .fc-event-title,
-        #calendar .fc-event .fc-event-time,
-        #calendar .fc-h-event .fc-event-title {
+        /* Block events: solid colored pill with white text */
+        #calendar .fc-daygrid-block-event,
+        #calendar .fc-daygrid-block-event .fc-event-main,
+        #calendar .fc-daygrid-block-event .fc-event-title,
+        #calendar .fc-daygrid-block-event .fc-event-time,
+        #calendar .fc-h-event,
+        #calendar .fc-h-event .fc-event-title,
+        #calendar .fc-h-event .fc-event-time,
+        #calendar a.fc-daygrid-block-event,
+        #calendar a.fc-daygrid-block-event:visited,
+        #calendar a.fc-h-event,
+        #calendar a.fc-h-event:visited {
             color: #ffffff;
+        }
+
+        #calendar .fc-daygrid-block-event,
+        #calendar .fc-h-event {
+            background-color: var(--fc-event-bg-color);
+            border-color: var(--fc-event-border-color);
+            opacity: 1;
+        }
+
+        #calendar .fc-daygrid-block-event:hover,
+        #calendar .fc-h-event:hover {
+            filter: brightness(1.1);
+            opacity: 1;
+        }
+
+        #calendar .fc-daygrid-block-event:hover .fc-event-title,
+        #calendar .fc-daygrid-block-event:hover .fc-event-time,
+        #calendar .fc-h-event:hover .fc-event-title,
+        #calendar .fc-h-event:hover .fc-event-time {
+            color: #ffffff;
+        }
+
+        /* Dot events (fallback): dark text on white cell */
+        #calendar .fc-daygrid-dot-event .fc-event-title,
+        #calendar .fc-daygrid-dot-event .fc-event-time {
+            color: #1e293b;
+            font-weight: 600;
+        }
+
+        #calendar .fc-daygrid-dot-event:hover .fc-event-title,
+        #calendar .fc-daygrid-dot-event:hover .fc-event-time {
+            color: #0f172a;
         }
 
         #calendar .fc .fc-button {
@@ -609,6 +648,7 @@
         const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
+            eventDisplay: 'block',
             selectable: true,
             longPressDelay: 350,       
             selectLongPressDelay: 350, 
@@ -669,6 +709,7 @@
                                 end: session.end_time,
                                 backgroundColor: bg,
                                 borderColor: border,
+                                textColor: '#ffffff',
                                 extendedProps: { 
                                     sessionTitle: session.title,
                                     activeCount: session.active_count, 
