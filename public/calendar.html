@@ -75,6 +75,7 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
             box-sizing: border-box;
             min-height: 500px;
+            color: #333333;
         }
 
         /* Keep FullCalendar on its original light palette */
@@ -109,6 +110,35 @@
         #calendar .fc-theme-standard td,
         #calendar .fc-theme-standard th {
             border-color: #dddddd;
+        }
+
+        #calendar .fc-event,
+        #calendar .fc-event .fc-event-main,
+        #calendar .fc-event .fc-event-title,
+        #calendar .fc-event .fc-event-time,
+        #calendar .fc-h-event .fc-event-title {
+            color: #ffffff;
+        }
+
+        #calendar .fc .fc-button {
+            color: #333333;
+            background-color: #f8f9fa;
+            border-color: #dddddd;
+        }
+
+        #calendar .fc .fc-button:hover {
+            background-color: #e9ecef;
+        }
+
+        #calendar .fc .fc-button-primary {
+            color: #ffffff;
+            background-color: #0070ba;
+            border-color: #0070ba;
+        }
+
+        #calendar .fc .fc-button-primary:hover {
+            background-color: #005fa3;
+            border-color: #005fa3;
         }
 
         .calendar-footer-row {
