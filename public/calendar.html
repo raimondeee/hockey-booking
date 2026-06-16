@@ -7,7 +7,32 @@
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #f8f9fa; padding-bottom: 60px; transition: background-color 0.3s ease; }
+        html {
+            min-height: 100%;
+            background-color: #000000;
+            background-image:
+                radial-gradient(ellipse 58% 48% at 0% 0%, #000000 0%, transparent 68%),
+                radial-gradient(ellipse 58% 48% at 100% 0%, #000000 0%, transparent 68%),
+                radial-gradient(ellipse 58% 48% at 0% 100%, #000000 0%, transparent 68%),
+                radial-gradient(ellipse 58% 48% at 100% 100%, #000000 0%, transparent 68%),
+                radial-gradient(ellipse 125% 100% at 50% 32%, #3a3a3a 0%, #262626 48%, #181818 76%, transparent 90%),
+                radial-gradient(ellipse 100% 100% at 50% 50%, #151515 0%, #151515 84%, #040404 94%, #000000 100%);
+            background-attachment: fixed;
+        }
+
+        html.coach-mode {
+            background-color: #fef9e7;
+            background-image: none;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 20px;
+            background: transparent;
+            color: #ffffff;
+            overflow-x: hidden;
+            padding-bottom: 60px;
+        }
         
         .header-bar { 
             display: flex; 
@@ -50,6 +75,40 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.05); 
             box-sizing: border-box;
             min-height: 500px;
+        }
+
+        /* Keep FullCalendar on its original light palette */
+        #calendar .fc,
+        #calendar .fc-scrollgrid,
+        #calendar .fc-scrollgrid-section > *,
+        #calendar .fc-daygrid-day,
+        #calendar .fc-daygrid-day-frame,
+        #calendar .fc-view-harness,
+        #calendar .fc-col-header-cell {
+            background: #ffffff;
+        }
+
+        #calendar .fc-toolbar-title,
+        #calendar .fc-daygrid-day-number,
+        #calendar .fc-col-header-cell-cushion {
+            color: #333333;
+        }
+
+        #calendar .fc-day-other .fc-daygrid-day-number {
+            color: #bbbbbb;
+        }
+
+        #calendar .fc-day-past:not(.fc-day-today) .fc-daygrid-day-frame {
+            background: #fafafa;
+        }
+
+        #calendar .fc-day-today .fc-daygrid-day-frame {
+            background: #fcf8e3;
+        }
+
+        #calendar .fc-theme-standard td,
+        #calendar .fc-theme-standard th {
+            border-color: #dddddd;
         }
 
         .calendar-footer-row {
@@ -127,7 +186,8 @@
             text-decoration: none;
         }
         
-        #contactCoachLink { color: #666; padding: 5px 0; }
+        #contactCoachLink { color: #aaaaaa; padding: 5px 0; }
+        #contactCoachLink:hover { color: #fff; }
 
         /* Coach session management — wider + 25% larger UI on desktop */
         @media (min-width: 901px) {
@@ -203,7 +263,7 @@
             .header-left { width: 100%; display: block; text-align: left; }
             .header-right { width: 100%; justify-content: flex-end; margin-top: -46px; }
             #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
-            #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(248, 249, 250, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 1px solid #ddd; z-index: 998; }
+            #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(18, 18, 18, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); border: 1px solid #1a1a1a; z-index: 998; }
             #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
             .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
             .filter-controls { flex-wrap: wrap; padding: 10px; }
@@ -503,7 +563,7 @@
         updateFilterButtonUI(initialType);
 
         loadSiteConfig().then(() => {
-            if (window.SiteBanner) SiteBanner.load();
+            if (window.SiteBanner) SiteBanner.load({ darkTheme: true });
         });
         
         if (adminToken) { applyCoachUIMode(true); }
@@ -887,7 +947,7 @@
             siteConfig = data.settings;
             feedback.style.color = '#2f855a';
             feedback.innerText = 'Settings saved.';
-            if (window.SiteBanner) SiteBanner.load();
+            if (window.SiteBanner) SiteBanner.load({ darkTheme: true });
             validateForm();
             if (calendar) calendar.refetchEvents();
             setTimeout(() => { feedback.innerText = ''; }, 2500);
@@ -1432,8 +1492,8 @@
     }
 
     function applyCoachUIMode(isActive) {
+        document.documentElement.classList.toggle('coach-mode', isActive);
         if (isActive) {
-            document.body.style.backgroundColor = '#fef9e7'; 
             document.getElementById('adminBadge').style.display = 'inline-block';
             document.getElementById('authBtn').innerText = "Logout";
             document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
@@ -1442,7 +1502,6 @@
             document.getElementById('linkOpsDashboard').style.display = 'inline-block';
             document.getElementById('linkRefundsCenter').style.display = 'inline-block';
         } else {
-            document.body.style.backgroundColor = '#f8f9fa'; 
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
             document.getElementById('manageCouponsBtn').style.display = 'none'; 
