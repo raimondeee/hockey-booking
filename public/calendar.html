@@ -501,7 +501,7 @@
     <strong>📅 Add schedule to your calendar</strong>
     <a id="subscribeGoogleLink" href="#" target="_blank" rel="noopener">Google Calendar</a>
     <a id="subscribeAppleLink" href="/calendar/sessions.ics">Apple / Outlook (.ics)</a>
-    <button type="button" class="calendar-subscribe-copy" id="subscribeCopyBtn">Copy subscribe link</button>
+    <button type="button" class="calendar-subscribe-copy" id="subscribeCopyBtn" title="For Google: Settings → Add calendar → From URL">Copy https link</button>
 </div>
 
 <div id="calendar"></div>
@@ -1067,13 +1067,13 @@
 
                 const copyBtn = document.getElementById('subscribeCopyBtn');
                 copyBtn.addEventListener('click', () => {
-                    const link = data.webcal || data.feed;
+                    const link = data.feed || data.googleManualUrl || data.webcal;
                     navigator.clipboard.writeText(link)
                         .then(() => {
                             copyBtn.innerText = 'Copied!';
-                            setTimeout(() => { copyBtn.innerText = 'Copy subscribe link'; }, 2000);
+                            setTimeout(() => { copyBtn.innerText = 'Copy https link'; }, 2000);
                         })
-                        .catch(() => window.prompt('Copy this calendar subscribe link:', link));
+                        .catch(() => window.prompt('Paste in Google Calendar → Settings → Add calendar → From URL:', link));
                 });
             })
             .catch(() => {});

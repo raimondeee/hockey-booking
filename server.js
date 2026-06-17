@@ -550,7 +550,7 @@ app.get('/calendar/sessions.ics', (req, res) => {
                 baseUrl: getPublicBaseUrl(),
                 locationAddressMap: LOCATION_ADDRESS_MAP,
                 contactEmail: CONTACT_EMAIL,
-                calendarName: 'Ben Stadey Hockey — Public Schedule'
+                calendarName: 'Ben Stadey Hockey - Public Schedule'
             });
 
             res.set('Content-Type', 'text/calendar; charset=utf-8');

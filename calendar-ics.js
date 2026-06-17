@@ -63,7 +63,7 @@ function sessionToVevent(session, options = {}) {
     const summary = escapeIcsText(session.title);
     const description = escapeIcsText(buildSessionDescription(session, options));
     const uid = `session-${session.id}@${CALENDAR_DOMAIN}`;
-    const dtstamp = formatIcsDateTimePT(new Date().toISOString());
+    const dtstamp = toGoogleCalUtc(new Date().toISOString());
     const url = options.baseUrl
         ? `${options.baseUrl.replace(/\/+$/, '')}/calendar.html?session_id=${session.id}`
         : '';
@@ -71,7 +71,7 @@ function sessionToVevent(session, options = {}) {
     let event = [
         'BEGIN:VEVENT',
         `UID:${uid}`,
-        `DTSTAMP;TZID=${CALENDAR_TZ}:${dtstamp}`,
+        `DTSTAMP:${dtstamp}`,
         `DTSTART;TZID=${CALENDAR_TZ}:${start}`,
         `DTEND;TZID=${CALENDAR_TZ}:${end}`,
         `SUMMARY:${summary}`
@@ -122,7 +122,7 @@ function buildGoogleCalendarUrl(session, options = {}) {
 
 function buildSessionCalendarLinks(session, baseUrl, options = {}) {
     const cleanBase = baseUrl.replace(/\/+$/, '');
-    const icsPath = `/api/sessions/${session.id}.ics`;
+    const icsPath = `/api/sessions/${session.id}/calendar.ics`;
     const icsUrl = `${cleanBase}${icsPath}`;
     const webcalUrl = icsUrl.replace(/^https?:/, 'webcal:');
 
@@ -137,10 +137,13 @@ function buildSessionCalendarLinks(session, baseUrl, options = {}) {
 function buildSubscribeLinks(baseUrl) {
     const cleanBase = baseUrl.replace(/\/+$/, '');
     const feedUrl = `${cleanBase}/calendar/sessions.ics`;
+    const webcalUrl = feedUrl.replace(/^https?:/, 'webcal:');
+    // Google’s cid= deep link often rejects https:// feeds but accepts webcal:// (manual “From URL” still uses https).
     return {
         feed: feedUrl,
-        webcal: feedUrl.replace(/^https?:/, 'webcal:'),
-        googleSubscribe: `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedUrl)}`
+        webcal: webcalUrl,
+        googleSubscribe: `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcalUrl)}`,
+        googleManualUrl: feedUrl
     };
 }
 
