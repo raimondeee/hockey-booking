@@ -98,6 +98,42 @@ With coach logged in:
 
 In a private/incognito window, confirm the yellow banner and “contact Ben” message instead of PayPal.
 
+## Test automated email (Gmail)
+
+Outbound mail sends through **Gmail SMTP** (`EMAIL_USER`). Parents still contact **`ben@benstadeyhockey.com`** on the site; replies to automated emails go there via `Reply-To`.
+
+### One-time Gmail setup
+
+1. Sign in to **benstadeyhockey@gmail.com**
+2. Turn on **2-Step Verification** for that Google account
+3. Create an **App Password**: [Google App Passwords](https://myaccount.google.com/apppasswords) → Mail → Other → name it `hockey-booking`
+4. Add to `.env.local` (see `.env.local.example`):
+
+```bash
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=465
+EMAIL_SECURE=true
+EMAIL_USER=benstadeyhockey@gmail.com
+EMAIL_PASS=xxxx xxxx xxxx xxxx    # 16-char app password (spaces optional)
+CONTACT_EMAIL=ben@benstadeyhockey.com
+```
+
+5. Restart the server — look for: `Email broadcast engine successfully connected`
+
+### Send a test message
+
+```bash
+./scripts/test-email.sh you@example.com
+```
+
+Or complete a test registration on the calendar with your own email as the parent address.
+
+| Problem | Fix |
+|---------|-----|
+| `Invalid login` / verification failed | Use an **App Password**, not the regular Gmail password |
+| `Less secure app` errors | Google requires 2FA + App Password for SMTP |
+| Email sends but wrong reply address | Set `CONTACT_EMAIL=ben@benstadeyhockey.com` on Render |
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -109,4 +145,9 @@ In a private/incognito window, confirm the yellow banner and “contact Ben” m
 
 ## Production (Render)
 
-Render uses environment variables in the dashboard, not `.env.local`. After local testing, push your branch and confirm the same keys exist on Render (`ADMIN_PASS`, `JWT_SECRET`, PayPal vars, etc.).
+Render uses environment variables in the dashboard, not `.env.local`. After local testing, push your branch and set on Render:
+
+- `ADMIN_PASS`, `JWT_SECRET`, PayPal vars
+- `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORT=465`, `EMAIL_SECURE=true`
+- `EMAIL_USER=benstadeyhockey@gmail.com`, `EMAIL_PASS=` (Google App Password)
+- `CONTACT_EMAIL=ben@benstadeyhockey.com`

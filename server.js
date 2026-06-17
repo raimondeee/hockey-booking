@@ -29,6 +29,8 @@ const EMAIL_SECURE = process.env.EMAIL_SECURE
     : EMAIL_PORT === 465;
 const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
 const EMAIL_PASS = (process.env.EMAIL_PASS || '').replace(/\s+/g, '');
+const CONTACT_EMAIL = (process.env.CONTACT_EMAIL || 'ben@benstadeyhockey.com').trim().toLowerCase();
+const EMAIL_FROM_NAME = (process.env.EMAIL_FROM_NAME || 'Ben Stadey Hockey Training').trim();
 
 const transporter = nodemailer.createTransport({
     host: EMAIL_HOST,
@@ -40,6 +42,18 @@ const transporter = nodemailer.createTransport({
         pass: EMAIL_PASS
     }
 });
+
+function buildMailOptions({ to, subject, text, bcc }) {
+    const options = {
+        from: `"${EMAIL_FROM_NAME}" <${EMAIL_USER}>`,
+        replyTo: CONTACT_EMAIL,
+        to,
+        subject,
+        text
+    };
+    if (bcc) options.bcc = bcc;
+    return options;
+}
 
 function getPublicBaseUrl() {
     const base = process.env.PUBLIC_URL || 'http://localhost:3000';
@@ -53,7 +67,7 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
 }
 
 if (EMAIL_USER && EMAIL_PASS) {
-    console.log(`Email transport configured: host=${EMAIL_HOST} port=${EMAIL_PORT} secure=${EMAIL_SECURE} user=${EMAIL_USER}`);
+    console.log(`Email transport configured: host=${EMAIL_HOST} port=${EMAIL_PORT} secure=${EMAIL_SECURE} user=${EMAIL_USER} replyTo=${CONTACT_EMAIL}`);
     transporter.verify((error) => {
         if (error) console.warn("[WARN] Email broadcast engine configuration failed verification:", error.message);
         else console.log("Email broadcast engine successfully connected and authenticated to SMTP host.");
@@ -114,7 +128,7 @@ const OFFLINE_PAYMENT_WAITLIST_CAP = 40;
 const DEFAULT_SITE_SETTINGS = {
     paypal_checkout_enabled: '1',
     banner_enabled: '0',
-    banner_message: 'Online checkout is temporarily unavailable while our payment provider completes a brief account review. You may still register — all signups are placed on the waitlist until Coach Ben confirms your spot after offline payment. Contact ben@benstadeyhockey.com with questions.'
+    banner_message: `Online checkout is temporarily unavailable while our payment provider completes a brief account review. You may still register — all signups are placed on the waitlist until Coach Ben confirms your spot after offline payment. Contact ${CONTACT_EMAIL} with questions.`
 };
 
 function seedSiteSettingsIfEmpty() {
@@ -250,12 +264,11 @@ function sendBookingConfirmationEmail({
         ? `Amount processed: $${parseFloat(amountPaid).toFixed(2)}`
         : 'Amount processed: N/A';
 
-    const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+    const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nBest regards,\nCoach Ben Stadey`
-    };
+        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nIf you have questions, reply to this email or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
+    });
 
     transporter.sendMail(mailOptions, (mailErr) => {
         if (mailErr) {
@@ -289,12 +302,11 @@ function sendMovedToWaitlistEmail({
         : 'TBD';
     const rinkBlock = formatRinkBlock(location);
 
-    const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+    const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
         text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
-    };
+    });
 
     transporter.sendMail(mailOptions, (mailErr) => {
         if (mailErr) {
@@ -328,12 +340,11 @@ function sendRemovedFromSessionEmail({
         : 'TBD';
     const rinkBlock = formatRinkBlock(location);
 
-    const mailOptions = {
-        from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+    const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[UPDATE] ${playerName} removed from session — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply directly to Coach Ben.\n\nBest regards,\nCoach Ben Stadey`
-    };
+        text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
+    });
 
     transporter.sendMail(mailOptions, (mailErr) => {
         if (mailErr) {
@@ -1227,13 +1238,12 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             const rinkBlock = formatRinkBlock(session.location);
             const locationContext = rinkBlock ? `\n${rinkBlock}` : "";
             
-            const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
-                to: EMAIL_USER, 
-                bcc: emailList, 
+            const mailOptions = buildMailOptions({
+                to: EMAIL_USER,
+                bcc: emailList,
                 subject: `[SCHEDULE UPDATE] ${session.title} - ${subject}`,
-                text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nDo not reply directly to this automated blast. For any further coordination inquiries, reach out to Ben directly at ben@benstadeyhockey.com.`
-            };
+                text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nReplies go to ${CONTACT_EMAIL}. For coordination questions, contact Ben at ${CONTACT_EMAIL}.`
+            });
 
             transporter.sendMail(mailOptions, (mailErr) => {
                 if (mailErr) return res.status(500).json({ error: `Mail transmission failed: ${mailErr.message}` });
@@ -1416,17 +1426,16 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                 : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
             const checkoutPaused = !siteSettings.paypal_checkout_enabled;
             const paymentInstructions = checkoutPaused
-                ? 'Online checkout is temporarily unavailable. Please contact Ben at ben@benstadeyhockey.com to arrange payment and confirm your spot.'
+                ? `Online checkout is temporarily unavailable. Please contact Ben at ${CONTACT_EMAIL} to arrange payment and confirm your spot.`
                 : (isDeepLink
                     ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.'
                     : 'Visit the link above to complete your registration and payment.');
 
-            const mailOptions = {
-                from: `"Ben Stadey Hockey Training" <${EMAIL_USER}>`,
+            const mailOptions = buildMailOptions({
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${paymentInstructions}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\nben@benstadeyhockey.com`
-            };
+                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${paymentInstructions}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\n${CONTACT_EMAIL}`
+            });
 
             transporter.sendMail(mailOptions, (mailErr) => {
                 if (mailErr) console.error("[ERROR] Failed sending waitlist promotion email:", mailErr.message);
