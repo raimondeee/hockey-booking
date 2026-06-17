@@ -15,16 +15,62 @@ function parseWallClockParts(isoString) {
     };
 }
 
-function formatIcsDateTimePT(isoString) {
-    const parts = parseWallClockParts(isoString);
-    if (!parts) return null;
-    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
-}
-
 function formatGoogleCalDatePT(isoString) {
     const parts = parseWallClockParts(isoString);
     if (!parts) return '';
     return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
+}
+
+/** Convert a Pacific wall-clock session time to the correct UTC instant. */
+function wallClockPtToUtcDate(isoString) {
+    const parts = parseWallClockParts(isoString);
+    if (!parts) return null;
+
+    const year = parseInt(parts.year, 10);
+    const month = parseInt(parts.month, 10);
+    const day = parseInt(parts.day, 10);
+    const hour = parseInt(parts.hour, 10);
+    const minute = parseInt(parts.minute, 10);
+    const second = parseInt(parts.second, 10);
+
+    let utcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+
+    for (let i = 0; i < 6; i++) {
+        const formatted = new Intl.DateTimeFormat('en-US', {
+            timeZone: CALENDAR_TZ,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hourCycle: 'h23'
+        }).formatToParts(new Date(utcMs));
+        const get = (type) => parseInt(formatted.find((p) => p.type === type)?.value || '0', 10);
+
+        const py = get('year');
+        const pm = get('month');
+        const pd = get('day');
+        const ph = get('hour');
+        const pmin = get('minute');
+        const ps = get('second');
+
+        if (py === year && pm === month && pd === day && ph === hour && pmin === minute && ps === second) {
+            return new Date(utcMs);
+        }
+
+        const desiredAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+        const ptDisplayedAsUtc = Date.UTC(py, pm - 1, pd, ph, pmin, ps);
+        utcMs += desiredAsUtc - ptDisplayedAsUtc;
+    }
+
+    return new Date(utcMs);
+}
+
+function formatIcsUtcZFromWallClockPT(isoString) {
+    const d = wallClockPtToUtcDate(isoString);
+    if (!d || Number.isNaN(d.getTime())) return null;
+    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
 function escapeIcsText(value) {
@@ -63,8 +109,8 @@ function buildSessionDescription(session, extras = {}) {
 }
 
 function sessionToVevent(session, options = {}) {
-    const start = formatIcsDateTimePT(session.start_time);
-    const end = formatIcsDateTimePT(session.end_time);
+    const start = formatIcsUtcZFromWallClockPT(session.start_time);
+    const end = formatIcsUtcZFromWallClockPT(session.end_time);
     if (!start || !end) return '';
 
     const location = buildSessionLocation(session, options.locationAddressMap);
@@ -80,8 +126,8 @@ function sessionToVevent(session, options = {}) {
         'BEGIN:VEVENT',
         `UID:${uid}`,
         `DTSTAMP:${dtstamp}`,
-        `DTSTART;TZID=${CALENDAR_TZ}:${start}`,
-        `DTEND;TZID=${CALENDAR_TZ}:${end}`,
+        `DTSTART:${start}`,
+        `DTEND:${end}`,
         `SUMMARY:${summary}`
     ];
 
