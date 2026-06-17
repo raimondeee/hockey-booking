@@ -279,6 +279,32 @@
 
         .calendar-subscribe-copy:hover { background: #005fa3; }
 
+        .coach-access-code-banner {
+            display: none;
+            background: #fff5f5;
+            border: 1px solid #f5c2c7;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin: 0 0 14px 0;
+            font-size: 13px;
+            color: #842029;
+        }
+
+        .coach-access-code-banner strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .coach-access-code-banner code {
+            font-size: 16px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            color: #58151c;
+        }
+
         .overview-calendar-links {
             display: flex;
             flex-wrap: wrap;
@@ -552,6 +578,11 @@
     <h3 id="modalTitle">Book Session</h3>
     <p id="modalLocation" style="font-size: 13px; font-weight: bold; color: #0070ba; margin: -10px 0 5px 0;"></p>
     <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
+
+    <div id="coachAccessCodeBanner" class="coach-access-code-banner" aria-live="polite">
+        <strong>🔒 Access code restriction</strong>
+        Parents must enter: <code id="coachAccessCodeValue"></code>
+    </div>
     
     <div id="parentFormFields">
         <div class="input-group" id="accessCodeWrapper" style="display:none;">
@@ -755,6 +786,7 @@
 </div>
 
 <script src="/site-banner.js"></script>
+<script src="/app-dialog.js"></script>
 <script>
     let calendar;
     let selectedEvent = null;
@@ -1084,8 +1116,8 @@
         openBookingModal(selectedEvent);
     }
 
-    function coachConfirm(message) {
-        return window.confirm(message);
+    async function coachConfirm(message) {
+        return AppDialog.confirm(message);
     }
 
     function handleOverlayClick() {
@@ -1113,6 +1145,16 @@
         document.getElementById('modalLocation').innerText = `📍 ${solvedVenueName}${solvedAddressText}`;
 
         document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
+
+        const accessBanner = document.getElementById('coachAccessCodeBanner');
+        const accessCode = (props.access_code || '').trim();
+        if (adminToken && accessCode) {
+            document.getElementById('coachAccessCodeValue').innerText = accessCode;
+            accessBanner.style.display = 'block';
+        } else {
+            accessBanner.style.display = 'none';
+            document.getElementById('coachAccessCodeValue').innerText = '';
+        }
 
         document.getElementById('parentName').value = "";
         document.getElementById('parentEmail').value = "";
@@ -1190,7 +1232,7 @@
         messageEl.value = siteConfig.banner_message || '';
     }
 
-    function confirmSaveSiteSettings() {
+    async function confirmSaveSiteSettings() {
         if (!adminToken) return;
         const paypalOn = document.getElementById('settingPaypalEnabled').checked;
         const bannerOn = document.getElementById('settingBannerEnabled').checked;
@@ -1198,7 +1240,7 @@
             `PayPal checkout: ${paypalOn ? 'ON' : 'OFF (waitlist-only mode)'}`,
             `Parent banner: ${bannerOn ? 'ON' : 'OFF'}`
         ].join('\n');
-        if (!coachConfirm(`Save these site settings?\n\n${summary}`)) {
+        if (!(await coachConfirm(`Save these site settings?\n\n${summary}`))) {
             syncCoachSiteSettingsForm();
             return;
         }
@@ -1410,7 +1452,7 @@
         document.getElementById('createSlotModal').style.display = 'block';
     }
     
-    function submitSessionSlot() {
+    async function submitSessionSlot() {
         const startVal = document.getElementById('newStart').value;
         const endVal = document.getElementById('newEnd').value;
         if (!startVal || !endVal) {
@@ -1426,7 +1468,7 @@
         const confirmMessage = sessionFormMode === 'edit'
             ? `Save changes to "${title}"?\n\nThis updates the session on the live calendar.`
             : `Publish new session "${title}" to the calendar?`;
-        if (!coachConfirm(confirmMessage)) return;
+        if (!(await coachConfirm(confirmMessage))) return;
 
         const payload = {
             token: adminToken,
@@ -1464,10 +1506,10 @@
         .catch(() => alert('Network error while saving session.'));
     }
 
-    function submitCustomCapacityOverride() {
+    async function submitCustomCapacityOverride() {
         const capVal = document.getElementById('customCapacityInput').value;
         if (!capVal || capVal < 1) return;
-        if (!coachConfirm(`Set max active roster for this session to ${capVal} players?`)) return;
+        if (!(await coachConfirm(`Set max active roster for this session to ${capVal} players?`))) return;
 
         fetch(`/api/admin/sessions/${selectedEvent.id}/capacity`, {
             method: 'POST',
@@ -1484,9 +1526,9 @@
         });
     }
     
-    function deleteCurrentSession() {
+    async function deleteCurrentSession() {
         const sessionLabel = selectedEvent ? selectedEvent.title.split('(')[0].trim() : 'this session';
-        if (!coachConfirm(`Permanently delete "${sessionLabel}" and ALL registrations?\n\nThis cannot be undone.`)) return;
+        if (!(await coachConfirm(`Permanently delete "${sessionLabel}" and ALL registrations?\n\nThis cannot be undone.`))) return;
         fetch(`/api/admin/sessions/${selectedEvent.id}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -1526,13 +1568,13 @@
         });
     }
 
-    function submitCreateCoupon() {
+    async function submitCreateCoupon() {
         const code = document.getElementById('newCouponCode').value;
         const type = document.getElementById('newCouponType').value;
         const val = document.getElementById('newCouponValue').value;
         if(!code || !val) return;
         const sym = type === 'fixed' ? '$' : '%';
-        if (!coachConfirm(`Create promo code "${code.toUpperCase()}" (${val}${sym})?`)) return;
+        if (!(await coachConfirm(`Create promo code "${code.toUpperCase()}" (${val}${sym})?`))) return;
 
         fetch('/api/admin/coupons/create', {
             method: 'POST',
@@ -1541,8 +1583,8 @@
         }).then(res => res.json()).then(() => { document.getElementById('newCouponCode').value = ''; document.getElementById('newCouponValue').value = ''; loadCouponVaultList(); });
     }
 
-    function deleteCouponFromVault(id, code) {
-        if (!coachConfirm(`Revoke coupon code "${code}"? Existing bookings are not affected.`)) return;
+    async function deleteCouponFromVault(id, code) {
+        if (!(await coachConfirm(`Revoke coupon code "${code}"? Existing bookings are not affected.`))) return;
         fetch(`/api/admin/coupons/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => loadCouponVaultList());
     }
 
@@ -1643,12 +1685,12 @@
         });
     }
 
-    function shiftQueueOrder(currentIndex, directionalShift, playerName) {
+    async function shiftQueueOrder(currentIndex, directionalShift, playerName) {
         const targetIndex = currentIndex + directionalShift;
         if (targetIndex < 0 || targetIndex >= currentRosterData.waitlist.length) return;
 
         const directionLabel = directionalShift < 0 ? 'up' : 'down';
-        if (!coachConfirm(`Move ${playerName} ${directionLabel} on the waitlist?`)) return;
+        if (!(await coachConfirm(`Move ${playerName} ${directionLabel} on the waitlist?`))) return;
 
         const temp = currentRosterData.waitlist[currentIndex];
         currentRosterData.waitlist[currentIndex] = currentRosterData.waitlist[targetIndex];
@@ -1669,18 +1711,18 @@
         });
     }
 
-    function removePlayerFromRoster(bookingId, playerName) {
-        if (!coachConfirm(`Remove ${playerName || 'this player'} from the session?\n\nThis deletes their registration.`)) return;
+    async function removePlayerFromRoster(bookingId, playerName) {
+        if (!(await coachConfirm(`Remove ${playerName || 'this player'} from the session?\n\nThis deletes their registration.`))) return;
         fetch(`/api/admin/bookings/${bookingId}/remove`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
-    function demotePlayerToWaitlist(bookingId, playerName) {
-        if (!coachConfirm(`Move ${playerName || 'this player'} from active roster to the waitlist?`)) return;
+    async function demotePlayerToWaitlist(bookingId, playerName) {
+        if (!(await coachConfirm(`Move ${playerName || 'this player'} from active roster to the waitlist?`))) return;
         fetch(`/api/admin/bookings/${bookingId}/demote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) }).then(() => { loadActiveRosterDashboard(selectedEvent.id); calendar.refetchEvents(); });
     }
 
-    function promotePlayerToActive(bookingId, playerName) {
-        if (!confirm(`Move ${playerName} to the active roster? Only do this after offline payment has been received.`)) return;
+    async function promotePlayerToActive(bookingId, playerName) {
+        if (!(await coachConfirm(`Move ${playerName} to the active roster? Only do this after offline payment has been received.`))) return;
         fetch(`/api/admin/bookings/${bookingId}/promote`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1734,7 +1776,7 @@
         document.body.removeChild(downloadLink);
     }
 
-    function submitRosterBroadcast() {
+    async function submitRosterBroadcast() {
         const subject = document.getElementById('broadcastSubject').value.trim();
         const message = document.getElementById('broadcastMessage').value.trim();
 
@@ -1743,7 +1785,7 @@
             return;
         }
 
-        if (!coachConfirm(`Send this email to the full roster now?\n\nSubject: ${subject}`)) return;
+        if (!(await coachConfirm(`Send this email to the full roster now?\n\nSubject: ${subject}`))) return;
 
         const sendBtn = event.target;
         const originalBtnText = sendBtn.innerText;
@@ -1801,9 +1843,9 @@
         else { passInput.type = 'password'; toggleIcon.innerText = '👁️'; }
     }
 
-    function toggleAuthField() {
+    async function toggleAuthField() {
         if(adminToken) {
-            if (!coachConfirm('Log out of Coach Portal?')) return;
+            if (!(await coachConfirm('Log out of Coach Portal?'))) return;
             adminToken = null;
             localStorage.removeItem('coach_admin_token'); 
             applyCoachUIMode(false);
@@ -1857,7 +1899,7 @@
         document.getElementById('overlay').style.display = 'none';
     }
 
-    function submitRefund() {
+    async function submitRefund() {
         const amount = parseFloat(document.getElementById('refundAmountInput').value);
         if (!amount || amount <= 0) {
             alert("Please enter a valid refund amount.");
@@ -1865,7 +1907,7 @@
         }
 
         const playerLabel = document.getElementById('refundPlayerLabel').innerText.replace('Player: ', '');
-        if (!coachConfirm(`Issue a $${amount.toFixed(2)} PayPal refund for ${playerLabel}?\n\nThis sends real money immediately and cannot be undone.`)) {
+        if (!(await coachConfirm(`Issue a $${amount.toFixed(2)} PayPal refund for ${playerLabel}?\n\nThis sends real money immediately and cannot be undone.`))) {
             return;
         }
 

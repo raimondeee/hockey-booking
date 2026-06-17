@@ -12,6 +12,17 @@ const {
     isPublicSession,
     isUpcomingSession
 } = require('./calendar-ics');
+const {
+    buildBookingConfirmationHtml,
+    buildBookingConfirmationText,
+    buildBookingEmailContext,
+    buildBookingConfirmationSubject,
+    buildBroadcastEmail,
+    buildMovedToWaitlistEmail,
+    buildRemovedFromSessionEmail,
+    buildRosterOpeningEmail,
+    formatSessionWhenPT
+} = require('./email-templates');
 
 const app = express();
 app.use(cors());
@@ -51,7 +62,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-function buildMailOptions({ to, subject, text, bcc }) {
+function buildMailOptions({ to, subject, text, html, bcc }) {
     const options = {
         from: `"${EMAIL_FROM_NAME}" <${EMAIL_USER}>`,
         replyTo: CONTACT_EMAIL,
@@ -59,6 +70,7 @@ function buildMailOptions({ to, subject, text, bcc }) {
         subject,
         text
     };
+    if (html) options.html = html;
     if (bcc) options.bcc = bcc;
     return options;
 }
@@ -234,11 +246,41 @@ function isEmailConfigured() {
     return !!(EMAIL_USER && EMAIL_PASS);
 }
 
-function formatRinkBlock(location) {
-    if (!location) return '';
-    const address = LOCATION_ADDRESS_MAP[location];
-    if (address) return `Rink: ${location}\nAddress: ${address}`;
-    return `Rink: ${location}`;
+function resolveLocationAddress(location) {
+    return location ? LOCATION_ADDRESS_MAP[location] || '' : '';
+}
+
+function buildSessionCalendarExtras(session, playerName) {
+    const sessionId = session.id ?? session.session_id;
+    const startTime = session.start_time;
+    const endTime = session.end_time;
+    const sessionPageUrl = sessionId
+        ? `${getPublicBaseUrl()}/calendar.html?session_id=${sessionId}`
+        : null;
+
+    if (!sessionId || !startTime || !endTime) {
+        return { calendarLinks: null, sessionPageUrl };
+    }
+
+    const calendarLinks = buildSessionCalendarLinks(
+        {
+            id: sessionId,
+            title: session.title,
+            start_time: startTime,
+            end_time: endTime,
+            location: session.location,
+            event_type: session.event_type,
+            price: session.price
+        },
+        getPublicBaseUrl(),
+        {
+            locationAddressMap: LOCATION_ADDRESS_MAP,
+            contactEmail: CONTACT_EMAIL,
+            playerName
+        }
+    );
+
+    return { calendarLinks, sessionPageUrl };
 }
 
 function sendBookingConfirmationEmail({
@@ -265,16 +307,7 @@ function sendBookingConfirmationEmail({
         return;
     }
 
-    const when = startTime
-        ? new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : 'TBD';
-    const rinkBlock = formatRinkBlock(location);
-    const statusLine = isWaitlist
-        ? `Status: Waitlist`
-        : `Status: Active roster`;
-    const receiptLine = amountPaid != null
-        ? `Amount processed: $${parseFloat(amountPaid).toFixed(2)}`
-        : 'Amount processed: N/A';
+    const locationAddress = location ? LOCATION_ADDRESS_MAP[location] || '' : '';
 
     const sessionForCal = {
         id: sessionId,
@@ -292,14 +325,36 @@ function sendBookingConfirmationEmail({
             playerName
         })
         : null;
+    const sessionPageUrl = sessionId
+        ? `${getPublicBaseUrl()}/calendar.html?session_id=${sessionId}`
+        : null;
     const calendarBlock = calendarLinks
-        ? `\n\n${formatCalendarLinksText(calendarLinks)}`
-        : '';
+        ? `\n\n${formatCalendarLinksText(calendarLinks, { sessionPageUrl })}`
+        : sessionPageUrl
+            ? `\n\nView session: ${sessionPageUrl}`
+            : '';
+
+    const ctx = buildBookingEmailContext({
+        parentName,
+        playerName,
+        sessionTitle,
+        startTime,
+        endTime,
+        location,
+        locationAddress,
+        amountPaid,
+        isWaitlist,
+        price,
+        calendarLinks,
+        sessionPageUrl,
+        contactEmail: CONTACT_EMAIL
+    });
 
     const mailOptions = buildMailOptions({
         to: parentEmail,
-        subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.${calendarBlock}\n\nIf you have questions, reply to this email or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
+        subject: buildBookingConfirmationSubject(playerName, sessionTitle, isWaitlist),
+        text: buildBookingConfirmationText(ctx, locationAddress, calendarBlock),
+        html: buildBookingConfirmationHtml(ctx, locationAddress)
     });
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -318,7 +373,11 @@ function sendMovedToWaitlistEmail({
     playerName,
     sessionTitle,
     sessionStart,
-    location
+    sessionEnd,
+    location,
+    sessionId,
+    eventType,
+    price
 }) {
     if (!parentEmail) {
         logSystemEvent('EMAIL_SKIPPED', 'Moved-to-waitlist email skipped: missing parent email.', { playerName, sessionTitle });
@@ -329,15 +388,29 @@ function sendMovedToWaitlistEmail({
         return;
     }
 
-    const when = sessionStart
-        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : 'TBD';
-    const rinkBlock = formatRinkBlock(location);
+    const locationAddress = resolveLocationAddress(location);
+    const sessionWhen = formatSessionWhenPT(sessionStart, sessionEnd);
+    const { calendarLinks, sessionPageUrl } = buildSessionCalendarExtras(
+        { id: sessionId, title: sessionTitle, start_time: sessionStart, end_time: sessionEnd, location, event_type: eventType, price },
+        playerName
+    );
+    const email = buildMovedToWaitlistEmail({
+        parentName,
+        playerName,
+        sessionTitle,
+        sessionWhen,
+        locationName: location,
+        locationAddress,
+        calendarLinks,
+        sessionPageUrl,
+        contactEmail: CONTACT_EMAIL
+    });
 
     const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[UPDATE] ${playerName} moved to waitlist — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf a roster spot opens, you'll automatically receive an email with next steps.\n\nBest regards,\nCoach Ben Stadey`
+        text: email.text,
+        html: email.html
     });
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -356,6 +429,7 @@ function sendRemovedFromSessionEmail({
     playerName,
     sessionTitle,
     sessionStart,
+    sessionEnd,
     location
 }) {
     if (!parentEmail) {
@@ -367,15 +441,23 @@ function sendRemovedFromSessionEmail({
         return;
     }
 
-    const when = sessionStart
-        ? new Date(sessionStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : 'TBD';
-    const rinkBlock = formatRinkBlock(location);
+    const locationAddress = resolveLocationAddress(location);
+    const sessionWhen = formatSessionWhenPT(sessionStart, sessionEnd);
+    const email = buildRemovedFromSessionEmail({
+        parentName,
+        playerName,
+        sessionTitle,
+        sessionWhen,
+        locationName: location,
+        locationAddress,
+        contactEmail: CONTACT_EMAIL
+    });
 
     const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[UPDATE] ${playerName} removed from session — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} has been removed from "${sessionTitle}".\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nIf this was unexpected, please reply or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
+        text: email.text,
+        html: email.html
     });
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -724,7 +806,7 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        db.get(`SELECT title, start_time, location, event_type, custom_capacity, price FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price FROM sessions WHERE id = ?`, [session_id], (err, session) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
@@ -1036,7 +1118,7 @@ app.post('/api/admin/sessions/:id/reorder-waitlist', verifyAdminToken, (req, res
 // 11. Admin Portal: Remove player from roster entirely (manually cancels/drops spot)
 app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
     db.get(
-        `SELECT b.session_id, b.status, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+        `SELECT b.session_id, b.status, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.end_time, s.location, s.event_type, s.price
          FROM bookings b
          JOIN sessions s ON b.session_id = s.id
          WHERE b.id = ?`,
@@ -1051,6 +1133,7 @@ app.post('/api/admin/bookings/:id/remove', verifyAdminToken, (req, res) => {
                 playerName: booking.player_name,
                 sessionTitle: booking.title,
                 sessionStart: booking.start_time,
+                sessionEnd: booking.end_time,
                 location: booking.location
             });
             if (booking.status === 'active') maybePromoteNextWaitlistPlayer(booking.session_id, res);
@@ -1287,7 +1370,7 @@ app.post('/api/admin/bookings/:id/promote', verifyAdminToken, (req, res) => {
 // 12. Admin Portal: Push active player down to waitlist and pull next player up
 app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
     db.get(
-        `SELECT b.session_id, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.location
+        `SELECT b.session_id, b.parent_email, b.parent_name, b.player_name, s.title, s.start_time, s.end_time, s.location, s.event_type, s.price
          FROM bookings b
          JOIN sessions s ON b.session_id = s.id
          WHERE b.id = ?`,
@@ -1316,7 +1399,11 @@ app.post('/api/admin/bookings/:id/demote', verifyAdminToken, (req, res) => {
                             playerName: booking.player_name,
                             sessionTitle: booking.title,
                             sessionStart: booking.start_time,
-                            location: booking.location
+                            sessionEnd: booking.end_time,
+                            location: booking.location,
+                            sessionId: booking.session_id,
+                            eventType: booking.event_type,
+                            price: booking.price
                         });
 
                         maybePromoteNextWaitlistPlayer(booking.session_id, res, { excludeBookingId: Number(req.params.id) });
@@ -1357,7 +1444,7 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
 
     if (!subject || !message) return res.status(400).json({ error: "Missing required properties: subject or message." });
 
-    db.get(`SELECT title, location FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
+    db.get(`SELECT id, title, start_time, end_time, location, event_type, price FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
         if (err || !session) return res.status(400).json({ error: "Target training session not found." });
 
         db.all(`SELECT DISTINCT parent_email FROM bookings WHERE session_id = ?`, [sessionId], (err, rows) => {
@@ -1365,14 +1452,26 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
             if (rows.length === 0) return res.json({ success: true, message: "Broadcast skipped. Roster empty." });
 
             const emailList = rows.map(r => r.parent_email);
-            const rinkBlock = formatRinkBlock(session.location);
-            const locationContext = rinkBlock ? `\n${rinkBlock}` : "";
-            
+            const locationAddress = resolveLocationAddress(session.location);
+            const sessionWhen = formatSessionWhenPT(session.start_time, session.end_time);
+            const { calendarLinks, sessionPageUrl } = buildSessionCalendarExtras(session, null);
+            const email = buildBroadcastEmail({
+                message,
+                sessionTitle: session.title,
+                sessionWhen,
+                locationName: session.location,
+                locationAddress,
+                calendarLinks,
+                sessionPageUrl,
+                contactEmail: CONTACT_EMAIL
+            });
+
             const mailOptions = buildMailOptions({
                 to: EMAIL_USER,
                 bcc: emailList,
                 subject: `[SCHEDULE UPDATE] ${session.title} - ${subject}`,
-                text: `${message}\n\n---\nSession Details: ${session.title}${locationContext}\n\nReplies go to ${CONTACT_EMAIL}. For coordination questions, contact Ben at ${CONTACT_EMAIL}.`
+                text: email.text,
+                html: email.html
             });
 
             transporter.sendMail(mailOptions, (mailErr) => {
@@ -1471,7 +1570,7 @@ app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
 async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
     const { excludeBookingId = null } = options;
     const nextUpQuery = `
-        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.price, s.title, s.location
+        SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.id as session_id, s.price, s.title, s.location, s.start_time, s.end_time, s.event_type
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.session_id = ? AND b.status = 'waitlist' AND (? IS NULL OR b.id != ?)
@@ -1550,21 +1649,47 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
             }
 
             const isDeepLink = deepLinkUrl !== baseClaimUrl;
-            const rinkBlock = formatRinkBlock(nextPlayer.location);
-            const linkLabel = isDeepLink
-                ? `👉 Complete Payment & Claim Spot (Direct Checkout Link):\n${deepLinkUrl}`
-                : `👉 Claim Your Spot Here:\n${baseClaimUrl}`;
             const checkoutPaused = !siteSettings.paypal_checkout_enabled;
             const paymentInstructions = checkoutPaused
                 ? `Online checkout is temporarily unavailable. Please contact Ben at ${CONTACT_EMAIL} to arrange payment and confirm your spot.`
                 : (isDeepLink
-                    ? 'Tapping the link above will take you directly to PayPal checkout to complete your payment and secure the spot.'
+                    ? 'Tapping the button above will take you directly to PayPal checkout to complete your payment and secure the spot.'
                     : 'Visit the link above to complete your registration and payment.');
+
+            const locationAddress = resolveLocationAddress(nextPlayer.location);
+            const sessionWhen = formatSessionWhenPT(nextPlayer.start_time, nextPlayer.end_time);
+            const { calendarLinks, sessionPageUrl } = buildSessionCalendarExtras(
+                {
+                    id: nextPlayer.session_id,
+                    title: nextPlayer.title,
+                    start_time: nextPlayer.start_time,
+                    end_time: nextPlayer.end_time,
+                    location: nextPlayer.location,
+                    event_type: nextPlayer.event_type,
+                    price: nextPlayer.price
+                },
+                nextPlayer.player_name
+            );
+            const email = buildRosterOpeningEmail({
+                parentName: nextPlayer.parent_name,
+                playerName: nextPlayer.player_name,
+                sessionTitle: nextPlayer.title,
+                sessionWhen,
+                locationName: nextPlayer.location,
+                locationAddress,
+                claimUrl: deepLinkUrl,
+                paymentInstructions,
+                checkoutPaused,
+                calendarLinks,
+                sessionPageUrl,
+                contactEmail: CONTACT_EMAIL
+            });
 
             const mailOptions = buildMailOptions({
                 to: nextPlayer.parent_email,
                 subject: `[ROSTER OPENING] Claim Your Training Spot for ${nextPlayer.player_name}`,
-                text: `Hi ${nextPlayer.parent_name},\n\nGreat news — a roster spot has opened up for ${nextPlayer.player_name} in an upcoming training session!${rinkBlock ? `\n\n${rinkBlock}` : ''}\n\n${linkLabel}\n\n${paymentInstructions}\n\n⚠️ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in time, the spot will automatically pass to the next player on the waitlist.\n\nBest regards,\nCoach Ben Stadey\n${CONTACT_EMAIL}`
+                text: email.text,
+                html: email.html
             });
 
             transporter.sendMail(mailOptions, (mailErr) => {

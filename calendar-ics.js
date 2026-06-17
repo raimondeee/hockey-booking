@@ -147,12 +147,16 @@ function buildSubscribeLinks(baseUrl) {
     };
 }
 
-function formatCalendarLinksText(links) {
-    return [
-        'Add to your calendar:',
+function formatCalendarLinksText(links, extras = {}) {
+    const lines = ['Add to your calendar:'];
+    if (extras.sessionPageUrl) {
+        lines.push(`View session: ${extras.sessionPageUrl}`);
+    }
+    lines.push(
         `Google Calendar: ${links.google}`,
         `Download .ics (Apple / Outlook): ${links.ics}`
-    ].join('\n');
+    );
+    return lines.join('\n');
 }
 
 function isPublicSession(session) {
