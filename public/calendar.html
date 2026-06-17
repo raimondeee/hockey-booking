@@ -233,6 +233,78 @@
             box-sizing: border-box;
         }
 
+        .calendar-subscribe-bar {
+            width: 95%;
+            max-width: 960px;
+            margin: 0 auto 16px;
+            padding: 12px 16px;
+            background: #121212;
+            border: 1px solid #1a1a1a;
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 16px;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .calendar-subscribe-bar strong {
+            color: #fff;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .calendar-subscribe-bar a {
+            color: #0070ba;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .calendar-subscribe-bar a:hover { color: #fff; }
+
+        .calendar-subscribe-copy {
+            background: #0070ba;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .calendar-subscribe-copy:hover { background: #005fa3; }
+
+        .overview-calendar-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .overview-calendar-links a {
+            flex: 1;
+            min-width: 140px;
+            text-align: center;
+            padding: 10px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-decoration: none;
+            background: #e8f4fc;
+            color: #0070ba;
+            border: 1px solid #90cdf4;
+        }
+
+        .overview-calendar-links a:hover {
+            background: #0070ba;
+            color: #fff;
+        }
+
         .modal { 
             display: none; 
             position: fixed; 
@@ -425,6 +497,13 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
+<div class="calendar-subscribe-bar" id="calendarSubscribeBar">
+    <strong>📅 Add schedule to your calendar</strong>
+    <a id="subscribeGoogleLink" href="#" target="_blank" rel="noopener">Google Calendar</a>
+    <a id="subscribeAppleLink" href="/calendar/sessions.ics">Apple / Outlook (.ics)</a>
+    <button type="button" class="calendar-subscribe-copy" id="subscribeCopyBtn">Copy subscribe link</button>
+</div>
+
 <div id="calendar"></div>
 
 <div class="calendar-footer-row">
@@ -458,6 +537,11 @@
         <div class="details-summary-row"><span class="details-summary-label">🗓️ Date & Time:</span><span class="details-summary-value" id="overviewTime">-</span></div>
         <div class="details-summary-row"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
         <div class="details-summary-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
+    </div>
+
+    <div class="overview-calendar-links" id="overviewCalendarLinks" style="display:none;">
+        <a id="overviewGoogleCal" href="#" target="_blank" rel="noopener">Add to Google Calendar</a>
+        <a id="overviewIcsDownload" href="#">Download .ics</a>
     </div>
     
     <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
@@ -697,6 +781,8 @@
         loadSiteConfig().then(() => {
             if (window.SiteBanner) SiteBanner.load({ darkTheme: true });
         });
+
+        initCalendarSubscribeBar();
         
         if (adminToken) { applyCoachUIMode(true); }
 
@@ -950,8 +1036,47 @@
         document.getElementById('overviewStatus').innerText = `Active: ${props.activeCount}/${props.maxActive} Spots Taken`;
         document.getElementById('overviewPrice').innerText = props.price > 0 ? `$${props.price.toFixed(2)}` : "Free / Waitlist Entry";
 
+        loadOverviewCalendarLinks(event.id);
+
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('eventOverviewModal').style.display = 'block';
+    }
+
+    function loadOverviewCalendarLinks(sessionId) {
+        const wrap = document.getElementById('overviewCalendarLinks');
+        wrap.style.display = 'none';
+
+        fetch(`/api/sessions/${sessionId}/calendar-links`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success || !data.links) return;
+                document.getElementById('overviewGoogleCal').href = data.links.google;
+                document.getElementById('overviewIcsDownload').href = data.links.ics;
+                wrap.style.display = 'flex';
+            })
+            .catch(() => {});
+    }
+
+    function initCalendarSubscribeBar() {
+        fetch('/api/calendar/subscribe')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) return;
+                document.getElementById('subscribeGoogleLink').href = data.googleSubscribe || data.feed;
+                document.getElementById('subscribeAppleLink').href = data.feed;
+
+                const copyBtn = document.getElementById('subscribeCopyBtn');
+                copyBtn.addEventListener('click', () => {
+                    const link = data.webcal || data.feed;
+                    navigator.clipboard.writeText(link)
+                        .then(() => {
+                            copyBtn.innerText = 'Copied!';
+                            setTimeout(() => { copyBtn.innerText = 'Copy subscribe link'; }, 2000);
+                        })
+                        .catch(() => window.prompt('Copy this calendar subscribe link:', link));
+                });
+            })
+            .catch(() => {});
     }
 
     function advanceFromOverviewToForm() {

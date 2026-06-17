@@ -4,6 +4,14 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken'); 
 const nodemailer = require('nodemailer'); 
 const db = require('./database');
+const {
+    buildIcsCalendar,
+    buildSessionCalendarLinks,
+    buildSubscribeLinks,
+    formatCalendarLinksText,
+    isPublicSession,
+    isUpcomingSession
+} = require('./calendar-ics');
 
 const app = express();
 app.use(cors());
@@ -238,9 +246,13 @@ function sendBookingConfirmationEmail({
     parentName,
     playerName,
     status,
+    sessionId,
     sessionTitle,
     startTime,
+    endTime,
     location,
+    eventType,
+    price,
     amountPaid,
     isWaitlist
 }) {
@@ -264,10 +276,30 @@ function sendBookingConfirmationEmail({
         ? `Amount processed: $${parseFloat(amountPaid).toFixed(2)}`
         : 'Amount processed: N/A';
 
+    const sessionForCal = {
+        id: sessionId,
+        title: sessionTitle,
+        start_time: startTime,
+        end_time: endTime,
+        location,
+        event_type: eventType,
+        price
+    };
+    const calendarLinks = sessionId && startTime && endTime
+        ? buildSessionCalendarLinks(sessionForCal, getPublicBaseUrl(), {
+            locationAddressMap: LOCATION_ADDRESS_MAP,
+            contactEmail: CONTACT_EMAIL,
+            playerName
+        })
+        : null;
+    const calendarBlock = calendarLinks
+        ? `\n\n${formatCalendarLinksText(calendarLinks)}`
+        : '';
+
     const mailOptions = buildMailOptions({
         to: parentEmail,
         subject: `[CONFIRMED] ${playerName} — ${sessionTitle}`,
-        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.\n\nIf you have questions, reply to this email or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
+        text: `Hi ${parentName || 'there'},\n\n${playerName} is now registered for "${sessionTitle}".\n${statusLine}\n${receiptLine}\nSession time: ${when}${rinkBlock ? `\n${rinkBlock}` : ''}\n\nThis is your automated confirmation/receipt email.${calendarBlock}\n\nIf you have questions, reply to this email or contact ${CONTACT_EMAIL}.\n\nBest regards,\nCoach Ben Stadey`
     });
 
     transporter.sendMail(mailOptions, (mailErr) => {
@@ -495,6 +527,92 @@ app.get('/api/sessions', (req, res) => {
     });
 });
 
+// Public iCal feed — subscribe in Google / Apple / Outlook (public sessions only)
+app.get('/calendar/sessions.ics', (req, res) => {
+    const typeFilter = (req.query.type || '').toLowerCase();
+    const nowIso = new Date().toISOString();
+
+    db.all(
+        `SELECT id, title, start_time, end_time, price, event_type, access_code, location
+         FROM sessions
+         WHERE end_time >= ?
+         ORDER BY start_time ASC`,
+        [nowIso],
+        (err, rows) => {
+            if (err) return res.status(500).send('Could not build calendar feed.');
+
+            let sessions = (rows || []).filter(isPublicSession).filter(isUpcomingSession);
+            if (typeFilter === 'large' || typeFilter === 'small') {
+                sessions = sessions.filter((s) => s.event_type === typeFilter);
+            }
+
+            const body = buildIcsCalendar(sessions, {
+                baseUrl: getPublicBaseUrl(),
+                locationAddressMap: LOCATION_ADDRESS_MAP,
+                contactEmail: CONTACT_EMAIL,
+                calendarName: 'Ben Stadey Hockey — Public Schedule'
+            });
+
+            res.set('Content-Type', 'text/calendar; charset=utf-8');
+            res.set('Content-Disposition', 'inline; filename="ben-stadey-hockey.ics"');
+            res.set('Cache-Control', 'public, max-age=300');
+            res.send(body);
+        }
+    );
+});
+
+// Subscribe URLs for the public schedule feed
+app.get('/api/calendar/subscribe', (req, res) => {
+    res.json({
+        success: true,
+        ...buildSubscribeLinks(getPublicBaseUrl())
+    });
+});
+
+// Single session .ics download + calendar link helpers
+app.get('/api/sessions/:id/calendar.ics', (req, res) => {
+    db.get(
+        `SELECT id, title, start_time, end_time, price, event_type, access_code, location
+         FROM sessions WHERE id = ?`,
+        [req.params.id],
+        (err, session) => {
+            if (err) return res.status(500).send('Could not build calendar file.');
+            if (!session) return res.status(404).send('Session not found.');
+
+            const body = buildIcsCalendar([session], {
+                baseUrl: getPublicBaseUrl(),
+                locationAddressMap: LOCATION_ADDRESS_MAP,
+                contactEmail: CONTACT_EMAIL,
+                calendarName: session.title
+            });
+
+            res.set('Content-Type', 'text/calendar; charset=utf-8');
+            res.set('Content-Disposition', `attachment; filename="session-${session.id}.ics"`);
+            res.send(body);
+        }
+    );
+});
+
+app.get('/api/sessions/:id/calendar-links', (req, res) => {
+    db.get(
+        `SELECT id, title, start_time, end_time, price, event_type, access_code, location
+         FROM sessions WHERE id = ?`,
+        [req.params.id],
+        (err, session) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+            res.json({
+                success: true,
+                links: buildSessionCalendarLinks(session, getPublicBaseUrl(), {
+                    locationAddressMap: LOCATION_ADDRESS_MAP,
+                    contactEmail: CONTACT_EMAIL
+                })
+            });
+        }
+    );
+});
+
 // Public site configuration (payment toggle, parent notice banner)
 app.get('/api/config/site', async (req, res) => {
     try {
@@ -640,9 +758,13 @@ app.post('/api/book', async (req, res) => {
                                     parentName: updatedBooking.parent_name,
                                     playerName: updatedBooking.player_name,
                                     status: updatedBooking.status,
+                                    sessionId: session_id,
                                     sessionTitle: session.title,
                                     startTime: session.start_time,
+                                    endTime: session.end_time,
                                     location: session.location,
+                                    eventType: session.event_type,
+                                    price: session.price,
                                     amountPaid,
                                     isWaitlist: updatedBooking.status === 'waitlist'
                                 });
@@ -698,9 +820,13 @@ app.post('/api/book', async (req, res) => {
                             parentName: parent_name,
                             playerName: player_name,
                             status,
+                            sessionId: session_id,
                             sessionTitle: session.title,
                             startTime: session.start_time,
+                            endTime: session.end_time,
                             location: session.location,
+                            eventType: session.event_type,
+                            price: session.price,
                             amountPaid,
                             isWaitlist: status === 'waitlist'
                         });
@@ -1098,7 +1224,7 @@ app.post('/api/admin/refunds/bulk', verifyAdminToken, async (req, res) => {
 app.post('/api/admin/bookings/:id/promote', verifyAdminToken, (req, res) => {
     db.get(
         `SELECT b.id, b.session_id, b.status, b.player_name, b.parent_name, b.parent_email,
-                s.title, s.start_time, s.location, s.price, s.event_type, s.custom_capacity
+                s.title, s.start_time, s.end_time, s.location, s.price, s.event_type, s.custom_capacity
          FROM bookings b
          JOIN sessions s ON b.session_id = s.id
          WHERE b.id = ?`,
@@ -1135,9 +1261,13 @@ app.post('/api/admin/bookings/:id/promote', verifyAdminToken, (req, res) => {
                                 parentName: booking.parent_name,
                                 playerName: booking.player_name,
                                 status: 'active',
+                                sessionId: booking.session_id,
                                 sessionTitle: booking.title,
                                 startTime: booking.start_time,
+                                endTime: booking.end_time,
                                 location: booking.location,
+                                eventType: booking.event_type,
+                                price: booking.price,
                                 amountPaid: booking.price,
                                 isWaitlist: false
                             });

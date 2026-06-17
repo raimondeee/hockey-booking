@@ -143,6 +143,16 @@ Or complete a test registration on the calendar with your own email as the paren
 | curl works, browser doesn’t | Wrong password typed, or stale token — log out of Coach Portal and log in again |
 | PayPal button missing | Expected when checkout is disabled in coach settings |
 
+## Calendar subscribe / add to calendar
+
+| URL | Purpose |
+|-----|---------|
+| `/calendar/sessions.ics` | Public subscribe feed (upcoming non-private sessions) |
+| `/api/sessions/:id/calendar.ics` | Download one session |
+| `/api/sessions/:id/calendar-links` | Google + .ics URLs (JSON) |
+
+Parents can subscribe on the calendar page or use **Add to Google Calendar** / **Download .ics** in the session overview modal. Confirmation emails include the same links after registration.
+
 ## Production (Render)
 
 Render uses environment variables in the dashboard, not `.env.local`. After local testing, push your branch and set on Render:
