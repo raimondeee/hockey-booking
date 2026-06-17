@@ -91,6 +91,9 @@ db.serialize(() => {
     db.run(`ALTER TABLE bookings ADD COLUMN refund_amount REAL DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN refunded_at TEXT DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN paypal_refund_id TEXT DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE sessions ADD COLUMN cancelled_at TEXT DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE sessions ADD COLUMN archived_at TEXT DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE bookings ADD COLUMN coupon_code TEXT DEFAULT NULL`, (err) => {});
 });
 
 module.exports = db;

@@ -45,6 +45,18 @@
         .log-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; font-family: monospace; }
         .tag-error { background: rgba(220, 53, 69, 0.2); color: #dc3545; border: 1px solid rgba(220, 53, 69, 0.4); }
         .metadata-pre { margin: 0; background: #242933; padding: 6px; border-radius: 4px; border: 1px solid #3b4252; overflow-x: auto; max-width: 320px; font-size: 11px; color: #cbd5e1; }
+
+        .audit-session-card { border: 1px solid #2c313c; border-radius: 6px; margin-bottom: 10px; overflow: hidden; background: #1a1e26; }
+        .audit-session-header { padding: 12px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .audit-session-header:hover { background: rgba(255,255,255,0.03); }
+        .audit-session-title { font-weight: bold; font-size: 14px; margin: 0 0 4px 0; color: #e8eaed; }
+        .audit-session-meta { font-size: 12px; color: #9aa0a6; line-height: 1.5; }
+        .audit-session-body { display: none; border-top: 1px solid #2c313c; padding: 0 14px 14px; }
+        .audit-session-body.open { display: block; }
+        .audit-badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: bold; text-transform: uppercase; margin-left: 6px; }
+        .audit-badge-archived { background: rgba(108,117,125,0.35); color: #ced4da; }
+        .audit-badge-cancelled { background: rgba(220,53,69,0.2); color: #f5a5ad; }
+        .audit-stat-pill { display: inline-block; background: #242933; border: 1px solid #3b4252; border-radius: 4px; padding: 3px 8px; font-size: 11px; margin-right: 6px; margin-top: 6px; }
     </style>
 </head>
 <body>
@@ -163,6 +175,19 @@
         </div>
     </div>
 
+    <!-- Row 4: Archived cancelled sessions audit trail -->
+    <div class="dashboard-row" style="grid-template-columns: 1fr;">
+        <div class="panel-box">
+            <h3 class="panel-header">📦 Archived Sessions Audit Trail</h3>
+            <p style="font-size: 12px; color: #9aa0a6; margin: -6px 0 14px 0; line-height: 1.5;">
+                Cancelled sessions removed from your calendar and Refunds Center after all refunds are complete. Registration and PayPal refund records are preserved here.
+            </p>
+            <div id="archivedAuditRoot" style="max-height: 480px; overflow-y: auto;">
+                <p style="text-align:center; color:#777; font-style:italic; padding:15px;">Loading archived session records…</p>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script src="/app-dialog.js"></script>
@@ -182,6 +207,7 @@
             loadPromoPerformanceAudits();
             loadSecurityBlacklistRoutines();
             loadSystemIncidentLogs();
+            loadArchivedSessionsAudit();
         }
     });
 
@@ -224,7 +250,7 @@
                     <td style="font-weight:bold; color:#ffc107;">${c.code}</td>
                     <td style="text-transform:capitalize;">${c.discount_type}</td>
                     <td>${c.discount_value}${sym}</td>
-                    <td><b>${c.usage_count}</b> split uses</td>
+                    <td><b>${c.usage_count}</b> redemption${c.usage_count === 1 ? '' : 's'}</td>
                     <td style="color:#28a745; font-weight:bold; font-family:monospace;">$${c.total_revenue_subtracted.toFixed(2)}</td>
                 </tr>`;
             });
@@ -295,6 +321,99 @@
             });
             tbody.innerHTML = html;
         }).catch(() => console.error("Telemetry channel connection timeout error."));
+    }
+
+    function formatAuditWhen(startTime, endTime) {
+        const start = new Date(startTime);
+        const end = new Date(endTime);
+        const datePart = start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        const timePart = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+        return `${datePart} · ${timePart}`;
+    }
+
+    function loadArchivedSessionsAudit() {
+        fetch('/api/admin/ledger/archived-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            const root = document.getElementById('archivedAuditRoot');
+            if (!data.success) {
+                root.innerHTML = '<p style="text-align:center; color:#dc3545; padding:15px;">Could not load archived session audit trail.</p>';
+                return;
+            }
+            if (!data.sessions || data.sessions.length === 0) {
+                root.innerHTML = '<p style="text-align:center; color:#777; font-style:italic; padding:15px;">No archived sessions yet. Cancel a session, refund all paid registrations, then archive from the calendar or Refunds Center.</p>';
+                return;
+            }
+
+            root.innerHTML = data.sessions.map((session, idx) => {
+                const cancelledWhen = session.cancelled_at
+                    ? new Date(session.cancelled_at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : '—';
+                const archivedWhen = session.archived_at
+                    ? new Date(session.archived_at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : '—';
+
+                const bookingRows = session.bookings.length
+                    ? session.bookings.map(b => {
+                        const refundCell = b.status === 'refunded'
+                            ? `<span style="color:#28a745; font-weight:bold;">$${parseFloat(b.refund_amount || session.price).toFixed(2)}</span>${b.refunded_at ? `<br><small style="color:#9aa0a6;">${new Date(b.refunded_at).toLocaleString()}</small>` : ''}${b.paypal_refund_id ? `<br><small style="font-family:monospace; color:#6c757d;">${b.paypal_refund_id}</small>` : ''}`
+                            : '<span style="color:#9aa0a6;">—</span>';
+                        return `<tr>
+                            <td>${b.player_name}<br><small style="color:#9aa0a6;">${b.parent_email}</small></td>
+                            <td style="text-transform:capitalize;">${b.status}</td>
+                            <td style="font-family:monospace; font-size:11px; color:#cbd5e1;">${b.paypal_order_id || '—'}</td>
+                            <td style="text-align:right;">${refundCell}</td>
+                        </tr>`;
+                    }).join('')
+                    : '<tr><td colspan="4" style="text-align:center; color:#777; font-style:italic;">No registrations on record</td></tr>';
+
+                return `<div class="audit-session-card">
+                    <div class="audit-session-header" onclick="toggleArchivedAuditBody(${idx})">
+                        <div>
+                            <p class="audit-session-title">${session.title}
+                                <span class="audit-badge audit-badge-cancelled">Cancelled</span>
+                                <span class="audit-badge audit-badge-archived">Archived</span>
+                            </p>
+                            <div class="audit-session-meta">${formatAuditWhen(session.start_time, session.end_time)} · $${parseFloat(session.price).toFixed(2)}${session.location ? ' · ' + session.location : ''}</div>
+                            <div>
+                                <span class="audit-stat-pill">${session.total_registrations} registration(s)</span>
+                                <span class="audit-stat-pill" style="color:#28a745;">${session.refunded_count} refunded</span>
+                                ${session.active_count ? `<span class="audit-stat-pill" style="color:#ffc107;">${session.active_count} active</span>` : ''}
+                                ${session.waitlist_count ? `<span class="audit-stat-pill">${session.waitlist_count} waitlist/pending</span>` : ''}
+                            </div>
+                            <div class="audit-session-meta" style="margin-top:6px;">Cancelled ${cancelledWhen} · Archived ${archivedWhen}</div>
+                        </div>
+                        <span style="color:#6c757d; font-size:12px; padding-top:4px;">▼</span>
+                    </div>
+                    <div class="audit-session-body" id="archivedAuditBody${idx}">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Player</th>
+                                    <th>Status</th>
+                                    <th>PayPal Order</th>
+                                    <th style="text-align:right;">Refund</th>
+                                </tr>
+                            </thead>
+                            <tbody>${bookingRows}</tbody>
+                        </table>
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            document.getElementById('archivedAuditRoot').innerHTML =
+                '<p style="text-align:center; color:#dc3545; padding:15px;">Failed to load archived session audit trail.</p>';
+        });
+    }
+
+    function toggleArchivedAuditBody(idx) {
+        const body = document.getElementById('archivedAuditBody' + idx);
+        if (body) body.classList.toggle('open');
     }
 
     function submitBlacklistAddition() {

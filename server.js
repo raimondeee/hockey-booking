@@ -208,6 +208,67 @@ function isRefundablePayPalOrder(paypalOrderId) {
     return true;
 }
 
+function evaluateSessionArchiveEligibility(session, bookings) {
+    if (!session) {
+        return { can_archive: false, already_archived: false, reason: 'Session not found.' };
+    }
+    if (session.archived_at) {
+        return { can_archive: false, already_archived: true, reason: 'Session is already archived.' };
+    }
+    if (!session.cancelled_at) {
+        return { can_archive: false, already_archived: false, reason: 'Cancel the session before archiving.' };
+    }
+
+    const blockers = [];
+    let refundable_remaining = 0;
+    let pending_payment_count = 0;
+    let active_paid_count = 0;
+    let refunded_count = 0;
+    let waitlist_count = 0;
+
+    (bookings || []).forEach((booking) => {
+        if (booking.status === 'waitlist') waitlist_count += 1;
+        if (booking.status === 'pending_payment') {
+            pending_payment_count += 1;
+            blockers.push(`${booking.player_name}: pending payment invite still open`);
+        }
+        if (booking.status === 'refunded') refunded_count += 1;
+        if (booking.status === 'active' && isRefundablePayPalOrder(booking.paypal_order_id)) {
+            active_paid_count += 1;
+            refundable_remaining += 1;
+            blockers.push(`${booking.player_name}: paid registration not refunded`);
+        }
+    });
+
+    return {
+        can_archive: blockers.length === 0,
+        already_archived: false,
+        blockers,
+        refundable_remaining,
+        pending_payment_count,
+        active_paid_count,
+        refunded_count,
+        waitlist_count,
+        total_registrations: (bookings || []).length
+    };
+}
+
+function fetchSessionArchiveEligibility(sessionId, callback) {
+    db.get(`SELECT * FROM sessions WHERE id = ?`, [sessionId], (sessionErr, session) => {
+        if (sessionErr) return callback(sessionErr);
+        if (!session) return callback(null, evaluateSessionArchiveEligibility(null, []));
+
+        db.all(`SELECT * FROM bookings WHERE session_id = ? ORDER BY id ASC`, [sessionId], (bookingsErr, bookings) => {
+            if (bookingsErr) return callback(bookingsErr);
+            callback(null, {
+                session,
+                ...evaluateSessionArchiveEligibility(session, bookings),
+                bookings: bookings || []
+            });
+        });
+    });
+}
+
 async function maybePromoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
     try {
         const siteSettings = await getSiteSettings();
@@ -594,12 +655,17 @@ async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
 app.get('/api/sessions', (req, res) => {
     // Run the expiration logic sweep right before sending schedule updates to ensure client view precision
     runExpiredReservationsSweep(() => {
+        const coachView = tryVerifyCoachToken(req.query.token);
+        const visibilityClause = coachView
+            ? 'WHERE s.archived_at IS NULL'
+            : 'WHERE s.cancelled_at IS NULL AND s.archived_at IS NULL';
         const query = `
             SELECT s.*, 
             SUM(CASE WHEN b.status = 'active' THEN 1 ELSE 0 END) as active_count,
             SUM(CASE WHEN b.status = 'waitlist' OR b.status = 'pending_payment' THEN 1 ELSE 0 END) as waitlist_count
             FROM sessions s
             LEFT JOIN bookings b ON s.id = b.session_id
+            ${visibilityClause}
             GROUP BY s.id`;
         
         db.all(query, [], (err, rows) => {
@@ -617,7 +683,7 @@ app.get('/calendar/sessions.ics', (req, res) => {
     db.all(
         `SELECT id, title, start_time, end_time, price, event_type, access_code, location
          FROM sessions
-         WHERE end_time >= ?
+         WHERE end_time >= ? AND cancelled_at IS NULL AND archived_at IS NULL
          ORDER BY start_time ASC`,
         [nowIso],
         (err, rows) => {
@@ -654,12 +720,12 @@ app.get('/api/calendar/subscribe', (req, res) => {
 // Single session .ics download + calendar link helpers
 app.get('/api/sessions/:id/calendar.ics', (req, res) => {
     db.get(
-        `SELECT id, title, start_time, end_time, price, event_type, access_code, location
+        `SELECT id, title, start_time, end_time, price, event_type, access_code, location, cancelled_at, archived_at
          FROM sessions WHERE id = ?`,
         [req.params.id],
         (err, session) => {
             if (err) return res.status(500).send('Could not build calendar file.');
-            if (!session) return res.status(404).send('Session not found.');
+            if (!session || session.cancelled_at || session.archived_at) return res.status(404).send('Session not found.');
 
             const body = buildIcsCalendar([session], {
                 baseUrl: getPublicBaseUrl(),
@@ -677,12 +743,12 @@ app.get('/api/sessions/:id/calendar.ics', (req, res) => {
 
 app.get('/api/sessions/:id/calendar-links', (req, res) => {
     db.get(
-        `SELECT id, title, start_time, end_time, price, event_type, access_code, location
+        `SELECT id, title, start_time, end_time, price, event_type, access_code, location, cancelled_at, archived_at
          FROM sessions WHERE id = ?`,
         [req.params.id],
         (err, session) => {
             if (err) return res.status(500).json({ error: err.message });
-            if (!session) return res.status(404).json({ error: 'Session not found.' });
+            if (!session || session.cancelled_at || session.archived_at) return res.status(404).json({ error: 'Session not found.' });
 
             res.json({
                 success: true,
@@ -762,7 +828,7 @@ app.post('/api/validate-coupon', (req, res) => {
 
 // 3. Public: Submit a registration (Enforces security blacklist interceptions, verifies PayPal, locks waivers)
 app.post('/api/book', async (req, res) => {
-    const { session_id, player_name, parent_email, parent_name, paypal_order_id, existing_booking_id } = req.body;
+    const { session_id, player_name, parent_email, parent_name, paypal_order_id, existing_booking_id, coupon_code } = req.body;
     if (!parent_email) return res.status(400).json({ error: "Parent email pattern is required for mapping." });
 
     const cleanEmail = parent_email.toLowerCase().trim();
@@ -779,6 +845,25 @@ app.post('/api/book', async (req, res) => {
         }
 
         const checkoutPausedMessage = "Online checkout is temporarily unavailable. You have been added to the waitlist — Coach Ben will confirm your spot after payment is arranged offline.";
+
+        const normalizedCouponCode = coupon_code ? String(coupon_code).toUpperCase().trim() : null;
+
+        const resolveCouponForBooking = (callback) => {
+            if (!normalizedCouponCode) return callback(null, null);
+            db.get(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [normalizedCouponCode], (couponErr, couponRow) => {
+                if (couponErr) return callback(couponErr);
+                if (!couponRow) return callback(new Error('INVALID_COUPON'));
+                callback(null, couponRow);
+            });
+        };
+
+        resolveCouponForBooking(async (couponErr, couponRow) => {
+            if (couponErr) {
+                if (couponErr.message === 'INVALID_COUPON') {
+                    return res.status(400).json({ error: 'Invalid or expired coupon code.' });
+                }
+                return res.status(500).json({ error: couponErr.message });
+            }
 
         if (!siteSettings.paypal_checkout_enabled) {
             const isPaidPayPalOrder = paypal_order_id
@@ -806,8 +891,11 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price FROM sessions WHERE id = ?`, [session_id], (err, session) => {
+        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at FROM sessions WHERE id = ?`, [session_id], (err, session) => {
             if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
+            if (session.cancelled_at || session.archived_at) {
+                return res.status(400).json({ error: "This session is no longer available for registration." });
+            }
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
             let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 5 : 25);
@@ -888,12 +976,14 @@ app.post('/api/book', async (req, res) => {
                     const insertQuery = `
                         INSERT INTO bookings (
                             session_id, player_name, parent_name, parent_email,
-                            status, paypal_order_id, waiver_accepted, waiver_timestamp, queue_position
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+                            status, paypal_order_id, waiver_accepted, waiver_timestamp, queue_position, coupon_code
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+                    const storedCouponCode = couponRow ? couponRow.code : null;
 
                     db.run(insertQuery, [
                         session_id, player_name, parent_name, cleanEmail, status,
-                        storedOrderId, waiverAcceptedFlag, waiverTimestamp, queuePosition
+                        storedOrderId, waiverAcceptedFlag, waiverTimestamp, queuePosition, storedCouponCode
                     ], function(insertErr) {
                         if (insertErr) return res.status(500).json({ error: insertErr.message });
                         const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
@@ -932,6 +1022,7 @@ app.post('/api/book', async (req, res) => {
                 }
             });
         });
+        });
     });
 });
 
@@ -940,7 +1031,7 @@ app.post('/api/claim-spot/lookup', (req, res) => {
     const { booking_id } = req.body;
     const query = `
         SELECT b.id as booking_id, b.player_name, b.parent_name, b.parent_email, b.status,
-               s.id as session_id, s.title, s.start_time, s.price, s.location
+               s.id as session_id, s.title, s.start_time, s.price, s.location, s.cancelled_at
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
         WHERE b.id = ? AND b.status = 'pending_payment'`;
@@ -948,6 +1039,9 @@ app.post('/api/claim-spot/lookup', (req, res) => {
     db.get(query, [booking_id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(400).json({ error: "Invitation record is either invalid, expired, or completed." });
+        if (row.cancelled_at || row.archived_at) {
+            return res.status(400).json({ error: "This session is no longer available. Please contact Coach Ben for assistance." });
+        }
         res.json({ success: true, record: row });
     });
 });
@@ -961,6 +1055,16 @@ app.post('/api/admin/login', (req, res) => {
     }
     res.status(401).json({ error: "Invalid coach credentials." });
 });
+
+function tryVerifyCoachToken(token) {
+    if (!token) return false;
+    try {
+        jwt.verify(token, JWT_SECRET);
+        return true;
+    } catch (err) {
+        return false;
+    }
+}
 
 function verifyAdminToken(req, res, next) {
     const token = req.body.token || (req.headers['authorization'] ? req.headers['authorization'].split(' ')[1] : null);
@@ -1046,14 +1150,90 @@ app.post('/api/admin/sessions/:id/capacity', verifyAdminToken, (req, res) => {
     });
 });
 
-// 6. Admin Portal: Delete a session and purge connected registrations
+// 6. Admin Portal: Cancel a session (soft delete — keeps roster for refunds and email)
 app.delete('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
-    db.run(`DELETE FROM bookings WHERE session_id = ?`, [req.params.id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        db.run(`DELETE FROM sessions WHERE id = ?`, [req.params.id], function(err) {
+    const cancelledAt = new Date().toISOString();
+    db.run(
+        `UPDATE sessions SET cancelled_at = ? WHERE id = ? AND cancelled_at IS NULL AND archived_at IS NULL`,
+        [cancelledAt, req.params.id],
+        function(err) {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true });
+            if (this.changes === 0) {
+                return res.status(400).json({ error: 'Session not found, already cancelled, or archived.' });
+            }
+            logSystemEvent('SESSION_CANCELLED', 'Training session cancelled by coach.', {
+                sessionId: req.params.id,
+                cancelledAt
+            });
+            res.json({
+                success: true,
+                message: 'Session cancelled. It is hidden from parents; roster preserved for refunds and email.'
+            });
+        }
+    );
+});
+
+// 6b. Admin Portal: Archive a cancelled session (hidden from Ben's UI, kept for audit)
+app.post('/api/admin/sessions/:id/archive-status', verifyAdminToken, (req, res) => {
+    fetchSessionArchiveEligibility(req.params.id, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!result.session) return res.status(404).json({ error: 'Session not found.' });
+        res.json({
+            success: true,
+            session_id: result.session.id,
+            title: result.session.title,
+            cancelled_at: result.session.cancelled_at,
+            archived_at: result.session.archived_at,
+            can_archive: result.can_archive,
+            already_archived: result.already_archived,
+            reason: result.reason || null,
+            blockers: result.blockers || [],
+            refundable_remaining: result.refundable_remaining || 0,
+            pending_payment_count: result.pending_payment_count || 0,
+            active_paid_count: result.active_paid_count || 0,
+            refunded_count: result.refunded_count || 0,
+            waitlist_count: result.waitlist_count || 0,
+            total_registrations: result.total_registrations || 0
         });
+    });
+});
+
+app.post('/api/admin/sessions/:id/archive', verifyAdminToken, (req, res) => {
+    fetchSessionArchiveEligibility(req.params.id, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!result.session) return res.status(404).json({ error: 'Session not found.' });
+        if (!result.can_archive) {
+            return res.status(400).json({
+                error: result.reason || 'Session cannot be archived yet.',
+                blockers: result.blockers || []
+            });
+        }
+
+        const archivedAt = new Date().toISOString();
+        db.run(
+            `UPDATE sessions SET archived_at = ? WHERE id = ? AND cancelled_at IS NOT NULL AND archived_at IS NULL`,
+            [archivedAt, req.params.id],
+            function(updateErr) {
+                if (updateErr) return res.status(500).json({ error: updateErr.message });
+                if (this.changes === 0) {
+                    return res.status(400).json({ error: 'Session could not be archived.' });
+                }
+
+                logSystemEvent('SESSION_ARCHIVED', `Archived cancelled session "${result.session.title}".`, {
+                    sessionId: result.session.id,
+                    archivedAt,
+                    cancelledAt: result.session.cancelled_at,
+                    totalRegistrations: result.total_registrations,
+                    refundedCount: result.refunded_count,
+                    waitlistCount: result.waitlist_count
+                });
+
+                res.json({
+                    success: true,
+                    message: 'Session archived and removed from your active lists. Records are kept in the Operations audit trail.'
+                });
+            }
+        );
     });
 });
 
@@ -1181,6 +1361,7 @@ app.post('/api/admin/refunds/catalog', verifyAdminToken, (req, res) => {
             s.price AS session_price,
             s.location,
             s.event_type,
+            s.cancelled_at,
             b.id AS booking_id,
             b.player_name,
             b.parent_name,
@@ -1196,6 +1377,7 @@ app.post('/api/admin/refunds/catalog', verifyAdminToken, (req, res) => {
         WHERE b.paypal_order_id IS NOT NULL
           AND b.paypal_order_id != 'WAITLIST_FREE'
           AND b.paypal_order_id != 'WAIVED_FREE'
+          AND s.archived_at IS NULL
           ${timeClause}
         ORDER BY s.start_time DESC, b.id ASC`;
 
@@ -1220,13 +1402,15 @@ app.post('/api/admin/refunds/catalog', verifyAdminToken, (req, res) => {
                     price: row.session_price,
                     location: row.location,
                     event_type: row.event_type,
+                    cancelled_at: row.cancelled_at,
                     temporal,
                     bookings: []
                 });
             }
 
             const refundable = row.status !== 'refunded' && isRefundablePayPalOrder(row.paypal_order_id);
-            sessionsMap.get(row.session_id).bookings.push({
+            const sessionEntry = sessionsMap.get(row.session_id);
+            sessionEntry.bookings.push({
                 booking_id: row.booking_id,
                 player_name: row.player_name,
                 parent_name: row.parent_name,
@@ -1242,7 +1426,16 @@ app.post('/api/admin/refunds/catalog', verifyAdminToken, (req, res) => {
             });
         });
 
-        const sessions = Array.from(sessionsMap.values());
+        const sessions = Array.from(sessionsMap.values()).map((session) => {
+            const refundableRemaining = session.bookings.filter((b) => b.refundable).length;
+            const pendingPaymentCount = session.bookings.filter((b) => b.status === 'pending_payment').length;
+            return {
+                ...session,
+                refundable_remaining: refundableRemaining,
+                pending_payment_count: pendingPaymentCount,
+                can_archive: !!session.cancelled_at && refundableRemaining === 0 && pendingPaymentCount === 0
+            };
+        });
         const summary = {
             session_count: sessions.length,
             refundable_count: sessions.reduce((n, s) => n + s.bookings.filter(b => b.refundable).length, 0),
@@ -1444,7 +1637,7 @@ app.post('/api/admin/sessions/:id/broadcast', verifyAdminToken, (req, res) => {
 
     if (!subject || !message) return res.status(400).json({ error: "Missing required properties: subject or message." });
 
-    db.get(`SELECT id, title, start_time, end_time, location, event_type, price FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
+    db.get(`SELECT id, title, start_time, end_time, location, event_type, price, cancelled_at FROM sessions WHERE id = ?`, [sessionId], (err, session) => {
         if (err || !session) return res.status(400).json({ error: "Target training session not found." });
 
         db.all(`SELECT DISTINCT parent_email FROM bookings WHERE session_id = ?`, [sessionId], (err, rows) => {
@@ -1491,12 +1684,12 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
             (SELECT COUNT(*) FROM bookings WHERE status = 'waitlist' OR status = 'pending_payment') as total_waitlisted
         FROM bookings b
         JOIN sessions s ON b.session_id = s.id
-        WHERE b.status = 'active'`;
+        WHERE b.status = 'active' AND s.archived_at IS NULL`;
 
     db.get(financeQuery, [], (err, financeRow) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        db.all(`SELECT id, event_type, custom_capacity FROM sessions`, [], (err, sessions) => {
+        db.all(`SELECT id, event_type, custom_capacity FROM sessions WHERE archived_at IS NULL`, [], (err, sessions) => {
             if (err) return res.status(500).json({ error: err.message });
 
             let maxPossibleCapacity = 0;
@@ -1526,14 +1719,15 @@ app.post('/api/admin/ledger/coupons-audit', verifyAdminToken, (req, res) => {
             COUNT(b.id) as usage_count,
             SUM(
                 CASE 
-                    WHEN c.discount_type = 'fixed' THEN c.discount_value
-                    WHEN c.discount_type = 'percent' THEN (s.price * (c.discount_value / 100))
+                    WHEN c.discount_type = 'fixed' THEN MIN(c.discount_value, s.price)
+                    WHEN c.discount_type = 'percent' THEN (s.price * (c.discount_value / 100.0))
                     ELSE 0 
                 END
             ) as total_revenue_subtracted
         FROM coupons c
-        LEFT JOIN bookings b ON b.paypal_order_id IS NOT NULL AND b.paypal_order_id != 'WAITLIST_FREE' AND b.status = 'active'
-        LEFT JOIN sessions s ON b.session_id = s.id
+        LEFT JOIN bookings b ON UPPER(b.coupon_code) = c.code
+            AND b.status IN ('active', 'refunded')
+        LEFT JOIN sessions s ON b.session_id = s.id AND s.archived_at IS NULL
         GROUP BY c.id ORDER BY usage_count DESC`;
 
     db.all(query, [], (err, rows) => {
@@ -1567,8 +1761,105 @@ app.post('/api/admin/ledger/system-logs', verifyAdminToken, (req, res) => {
     });
 });
 
+// 20. Admin Portal: Archived cancelled sessions audit trail
+app.post('/api/admin/ledger/archived-sessions', verifyAdminToken, (req, res) => {
+    const query = `
+        SELECT
+            s.id AS session_id,
+            s.title,
+            s.start_time,
+            s.end_time,
+            s.price,
+            s.location,
+            s.event_type,
+            s.cancelled_at,
+            s.archived_at,
+            b.id AS booking_id,
+            b.player_name,
+            b.parent_name,
+            b.parent_email,
+            b.status,
+            b.paypal_order_id,
+            b.refund_amount,
+            b.refunded_at,
+            b.paypal_refund_id,
+            b.created_at AS booked_at
+        FROM sessions s
+        LEFT JOIN bookings b ON b.session_id = s.id
+        WHERE s.archived_at IS NOT NULL
+        ORDER BY s.archived_at DESC, b.id ASC`;
+
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const sessionsMap = new Map();
+        (rows || []).forEach((row) => {
+            if (!sessionsMap.has(row.session_id)) {
+                sessionsMap.set(row.session_id, {
+                    session_id: row.session_id,
+                    title: row.title,
+                    start_time: row.start_time,
+                    end_time: row.end_time,
+                    price: row.price,
+                    location: row.location,
+                    event_type: row.event_type,
+                    cancelled_at: row.cancelled_at,
+                    archived_at: row.archived_at,
+                    bookings: []
+                });
+            }
+            if (row.booking_id) {
+                sessionsMap.get(row.session_id).bookings.push({
+                    booking_id: row.booking_id,
+                    player_name: row.player_name,
+                    parent_name: row.parent_name,
+                    parent_email: row.parent_email,
+                    status: row.status,
+                    paypal_order_id: row.paypal_order_id,
+                    refund_amount: row.refund_amount,
+                    refunded_at: row.refunded_at,
+                    paypal_refund_id: row.paypal_refund_id,
+                    booked_at: row.booked_at
+                });
+            }
+        });
+
+        const sessions = Array.from(sessionsMap.values()).map((session) => {
+            const refundedCount = session.bookings.filter((b) => b.status === 'refunded').length;
+            const activeCount = session.bookings.filter((b) => b.status === 'active').length;
+            const waitlistCount = session.bookings.filter((b) => b.status === 'waitlist' || b.status === 'pending_payment').length;
+            return {
+                ...session,
+                total_registrations: session.bookings.length,
+                refunded_count: refundedCount,
+                active_count: activeCount,
+                waitlist_count: waitlistCount
+            };
+        });
+
+        res.json({
+            success: true,
+            count: sessions.length,
+            sessions
+        });
+    });
+});
+
 async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options = {}) {
     const { excludeBookingId = null } = options;
+
+    db.get(`SELECT cancelled_at, archived_at FROM sessions WHERE id = ?`, [sessionId], (cancelErr, sessionRow) => {
+        if (cancelErr) {
+            if (optionalResContext) optionalResContext.status(500).json({ error: cancelErr.message });
+            return;
+        }
+        if (sessionRow?.cancelled_at || sessionRow?.archived_at) {
+            if (optionalResContext) {
+                optionalResContext.json({ success: true, message: 'Session is cancelled — waitlist promotion skipped.' });
+            }
+            return;
+        }
+
     const nextUpQuery = `
         SELECT b.id, b.parent_email, b.parent_name, b.player_name, s.id as session_id, s.price, s.title, s.location, s.start_time, s.end_time, s.event_type
         FROM bookings b
@@ -1700,6 +1991,7 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
                 }
             });
         });
+    });
     });
 }
 

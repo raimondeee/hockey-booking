@@ -44,6 +44,12 @@
         .btn-bulk { background: #dc3545; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
         .btn-bulk:disabled { background: #495057; cursor: not-allowed; }
 
+        .btn-archive { background: #6c757d; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; margin-top: 10px; }
+        .btn-archive:hover { background: #5a6268; }
+        .btn-archive:disabled { background: #495057; cursor: not-allowed; }
+        .archive-hint { font-size: 12px; color: #a0aec0; margin: 10px 0 0 0; line-height: 1.5; }
+        .archive-blockers { font-size: 12px; color: #f5a5ad; margin: 8px 0 0 0; font-weight: bold; }
+
         .status-refunded { color: #28a745; font-size: 12px; }
         .status-active { color: #ffc107; font-size: 12px; }
 
@@ -227,10 +233,33 @@
                 </tr>`;
             }).join('');
 
+            const cancelledTag = session.cancelled_at
+                ? ' <span style="color:#dc3545;font-size:12px;font-weight:bold;">CANCELLED</span>'
+                : '';
+            const scheduleParam = session.cancelled_at ? '&schedule=cancelled' : '';
+
+            let archiveSection = '';
+            if (session.cancelled_at) {
+                if (session.can_archive) {
+                    archiveSection = `<div style="padding:0 18px 14px; border-top:1px solid #2c313c; margin-top:4px; padding-top:12px;">
+                        <p class="archive-hint">All refunds are complete. Archive to remove this session from your calendar and Refunds Center. Records stay in the Operations audit trail.</p>
+                        <button type="button" class="btn-archive" onclick="archiveSession(${session.session_id}, event)">Archive &amp; remove from my lists</button>
+                    </div>`;
+                } else {
+                    const blockers = [];
+                    if (session.refundable_remaining > 0) blockers.push(`${session.refundable_remaining} refund(s) still due`);
+                    if (session.pending_payment_count > 0) blockers.push(`${session.pending_payment_count} pending payment(s)`);
+                    archiveSection = `<div style="padding:0 18px 14px; border-top:1px solid #2c313c; margin-top:4px; padding-top:12px;">
+                        <p class="archive-hint">After all paid registrations are refunded, you can archive this cancelled session.</p>
+                        ${blockers.length ? `<p class="archive-blockers">Before archiving: ${blockers.join(' · ')}</p>` : ''}
+                    </div>`;
+                }
+            }
+
             return `<div class="session-card">
                 <div class="session-header" onclick="toggleSessionBody(${idx})">
                     <div>
-                        <p class="session-title">${session.title} ${temporalTag(session.temporal)}</p>
+                        <p class="session-title">${session.title}${cancelledTag} ${temporalTag(session.temporal)}</p>
                         <div class="session-meta">${formatSessionWhen(session.start_time, session.end_time)} · $${parseFloat(session.price).toFixed(2)} · ${refundableRows.length} refundable</div>
                     </div>
                     <span style="color:#6c757d">▼</span>
@@ -241,8 +270,9 @@
                         <tbody>${rows}</tbody>
                     </table>
                     <div style="padding:10px 18px;">
-                        <a href="/calendar.html?session_id=${session.session_id}" class="btn-nav" style="font-size:12px;">Open on calendar →</a>
+                        <a href="/calendar.html?session_id=${session.session_id}${scheduleParam}" class="btn-nav" style="font-size:12px;">Open on calendar →</a>
                     </div>
+                    ${archiveSection}
                 </div>
             </div>`;
         }).join('');
@@ -289,6 +319,27 @@
         document.getElementById('bulkStatusBanner').style.display = 'none';
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('bulkModal').style.display = 'block';
+    }
+
+    async function archiveSession(sessionId, clickEvent) {
+        if (clickEvent) clickEvent.stopPropagation();
+        if (!(await AppDialog.confirm('Archive this cancelled session?\n\nIt will disappear from your calendar and Refunds Center. Registration and refund records are kept in the Operations audit trail.'))) return;
+
+        fetch(`/api/admin/sessions/${sessionId}/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error + (data.blockers && data.blockers.length ? `\n\n${data.blockers.join('\n')}` : ''));
+                return;
+            }
+            alert(data.message || 'Session archived.');
+            loadCatalog();
+        })
+        .catch(() => alert('Network error while archiving session.'));
     }
 
     function closeModals() {

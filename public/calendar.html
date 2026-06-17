@@ -305,6 +305,58 @@
             color: #58151c;
         }
 
+        .coach-cancelled-banner {
+            display: none;
+            background: #fde8e8;
+            border: 1px solid #f5c2c7;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin: 0 0 14px 0;
+            font-size: 13px;
+            color: #842029;
+            font-weight: bold;
+        }
+
+        .coach-schedule-filter {
+            display: none;
+            margin-top: -8px;
+        }
+
+        .coach-archive-zone {
+            display: none;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .coach-archive-zone p {
+            font-size: 12px;
+            color: #666;
+            margin: 0 0 10px 0;
+            line-height: 1.5;
+        }
+
+        .coach-archive-btn {
+            width: 100%;
+            background: #6c757d;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .coach-archive-btn:disabled {
+            background: #adb5bd;
+            cursor: not-allowed;
+        }
+
+        .coach-archive-btn:not(:disabled):hover {
+            background: #5a6268;
+        }
+
         .overview-calendar-links {
             display: flex;
             flex-wrap: wrap;
@@ -523,6 +575,13 @@
     <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
 </div>
 
+<div class="filter-controls coach-schedule-filter" id="coachScheduleFilter">
+    <span class="filter-label">Coach view:</span>
+    <button class="filter-btn coach-schedule-btn" id="scheduleBtn-active" onclick="applyCoachScheduleFilter('active')">Active Sessions</button>
+    <button class="filter-btn coach-schedule-btn" id="scheduleBtn-cancelled" onclick="applyCoachScheduleFilter('cancelled')">Cancelled</button>
+    <button class="filter-btn coach-schedule-btn" id="scheduleBtn-all" onclick="applyCoachScheduleFilter('all')">All Sessions</button>
+</div>
+
 <div class="calendar-subscribe-bar" id="calendarSubscribeBar">
     <strong>📅 Add schedule to your calendar</strong>
     <a id="subscribeGoogleLink" href="#" target="_blank" rel="noopener">Google Calendar</a>
@@ -578,6 +637,10 @@
     <h3 id="modalTitle">Book Session</h3>
     <p id="modalLocation" style="font-size: 13px; font-weight: bold; color: #0070ba; margin: -10px 0 5px 0;"></p>
     <p id="modalStatus" style="font-size: 13px; color: #666; margin-bottom: 15px;"></p>
+
+    <div id="coachCancelledBanner" class="coach-cancelled-banner">
+        This session is cancelled — hidden from parents. Roster, refunds, and broadcast email are still available.
+    </div>
 
     <div id="coachAccessCodeBanner" class="coach-access-code-banner" aria-live="polite">
         <strong>🔒 Access code restriction</strong>
@@ -703,7 +766,13 @@
     </div>
 
     <button id="editSessionBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:20px;" onclick="openEditSessionModal()">✏️ Edit Session Details</button>
-    <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="deleteCurrentSession()">Delete This Entire Slot</button>
+    <button id="deleteSessionBtn" class="btn btn-danger" style="display:none;" onclick="cancelCurrentSession()">Cancel Session</button>
+
+    <div id="coachArchiveZone" class="coach-archive-zone">
+        <p id="coachArchiveHelp">When all paid registrations are refunded, archive removes this session from your calendar and Refunds Center. Records stay in the Operations audit trail.</p>
+        <p id="coachArchiveBlockers" style="display:none; color:#842029; font-weight:bold;"></p>
+        <button type="button" id="archiveSessionBtn" class="coach-archive-btn" onclick="archiveCurrentSession()" disabled>Archive &amp; remove from my lists</button>
+    </div>
 </div>
 
 <div class="modal" id="refundModal" style="max-width: 380px;">
@@ -795,6 +864,7 @@
     let paypalScriptLoaded = false;
     let currentSessionPrice = 0; 
     let verifiedDiscountAmount = 0;
+    let verifiedCouponCode = null;
     let currentRosterData = null;
     let sessionFormMode = 'create';
     let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '', offline_waitlist_cap: 40 };
@@ -808,7 +878,9 @@
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
         const initialType = urlParams.get('type') || 'all';
+        const initialSchedule = urlParams.get('schedule') || 'active';
         updateFilterButtonUI(initialType);
+        updateCoachScheduleButtonUI(initialSchedule);
 
         loadSiteConfig().then(() => {
             if (window.SiteBanner) SiteBanner.load({ darkTheme: true });
@@ -834,8 +906,9 @@
             displayEventTime: false,
             eventContent: function(arg) {
                 const props = arg.event.extendedProps || {};
+                const cancelled = props.isCancelled ? '✕ ' : '';
                 const locked = props.access_code ? '🔒 ' : '';
-                const title = locked + (props.sessionTitle || arg.event.title.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim());
+                const title = cancelled + locked + (props.sessionTitle || arg.event.title.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim());
                 const timeText = arg.timeText || (arg.event.start
                     ? arg.event.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
                     : '');
@@ -871,17 +944,29 @@
             },
             events: function(info, successCallback, failureCallback) {
                 const currentUrlParams = new URLSearchParams(window.location.search);
-                const filterType = currentUrlParams.get('type'); 
+                const filterType = currentUrlParams.get('type');
+                const scheduleFilter = adminToken ? (currentUrlParams.get('schedule') || 'active') : 'active';
+                const sessionsUrl = adminToken
+                    ? `/api/sessions?token=${encodeURIComponent(adminToken)}`
+                    : '/api/sessions';
 
-                fetch('/api/sessions')
+                fetch(sessionsUrl)
                     .then(res => res.json())
                     .then(data => {
                         let filteredData = data;
                         if (filterType && filterType !== 'all' && !adminToken) {
                             filteredData = data.filter(session => session.event_type === filterType);
                         }
+                        if (adminToken) {
+                            if (scheduleFilter === 'active') {
+                                filteredData = filteredData.filter(session => !session.cancelled_at);
+                            } else if (scheduleFilter === 'cancelled') {
+                                filteredData = filteredData.filter(session => session.cancelled_at);
+                            }
+                        }
 
                         const events = filteredData.map(session => {
+                            const isCancelled = !!session.cancelled_at;
                             const isSmallGroup = session.event_type === 'small';
                             const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 5 : 25);
                             const checkoutPaused = !siteConfig.paypal_checkout_enabled;
@@ -892,23 +977,30 @@
                                 ? session.waitlist_count >= targetWaitlistCap
                                 : session.active_count >= targetCap;
                             const isLocked = session.access_code && session.access_code !== "";
-                            const titlePrefix = isLocked ? "🔒 " : "";
+                            const titlePrefix = isCancelled ? '' : (isLocked ? "🔒 " : "");
 
                             const now = new Date();
                             const start = new Date(session.start_time);
                             const end = new Date(session.end_time);
                             let bg = isFull ? '#555555' : '#0070ba';
                             let border = isFull ? '#444444' : '#005fa3';
-                            if (adminToken) {
+                            if (isCancelled) {
+                                bg = '#8b2e2e';
+                                border = '#6d2424';
+                            } else if (adminToken) {
                                 if (end < now) { bg = '#6c757d'; border = '#5a6268'; }
                                 else if (start <= now && end >= now) { bg = isFull ? '#5a6268' : '#28a745'; border = '#1e7e34'; }
                                 else if (isFull) { bg = '#555555'; border = '#444444'; }
                                 else { bg = '#0070ba'; border = '#005fa3'; }
                             }
 
+                            const countLabel = isCancelled
+                                ? `${session.active_count + session.waitlist_count} registered`
+                                : `${session.active_count}/${targetCap}`;
+
                             return {
                                 id: session.id,
-                                title: `${titlePrefix}${session.title} (${session.active_count}/${targetCap})`,
+                                title: `${titlePrefix}${session.title} (${countLabel})`,
                                 start: session.start_time,
                                 end: session.end_time,
                                 backgroundColor: bg,
@@ -924,7 +1016,9 @@
                                     maxActive: targetCap,
                                     maxWaitlist: targetWaitlistCap,
                                     custom_capacity: session.custom_capacity,
-                                    location: session.location
+                                    location: session.location,
+                                    cancelled_at: session.cancelled_at,
+                                    isCancelled
                                 }
                             };
                         });
@@ -953,6 +1047,24 @@
         });
         calendar.render();
     });
+
+    function updateCoachScheduleButtonUI(activeSchedule) {
+        document.querySelectorAll('.coach-schedule-btn').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = document.getElementById(`scheduleBtn-${activeSchedule}`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    function applyCoachScheduleFilter(schedule) {
+        const url = new URL(window.location);
+        if (schedule === 'active') {
+            url.searchParams.delete('schedule');
+        } else {
+            url.searchParams.set('schedule', schedule);
+        }
+        window.history.pushState({}, '', url);
+        updateCoachScheduleButtonUI(schedule);
+        if (calendar) calendar.refetchEvents();
+    }
 
     function applyLiveFilter(type) {
         const url = new URL(window.location);
@@ -986,6 +1098,7 @@
                 else if (data.discount_type === 'percent') { verifiedDiscountAmount = originalPrice * (data.discount_value / 100); }
                 
                 currentSessionPrice = Math.max(0, originalPrice - verifiedDiscountAmount);
+                verifiedCouponCode = code.toUpperCase();
                 feedback.style.color = 'green';
                 feedback.innerText = `Coupon applied! Saved $${verifiedDiscountAmount.toFixed(2)}. New total: $${currentSessionPrice.toFixed(2)}`;
                 validateForm(); 
@@ -993,6 +1106,7 @@
                 feedback.style.color = 'red';
                 feedback.innerText = data.error || "Invalid coupon code.";
                 verifiedDiscountAmount = 0;
+                verifiedCouponCode = null;
                 currentSessionPrice = selectedEvent.extendedProps.price;
                 validateForm();
             }
@@ -1138,13 +1252,21 @@
         selectedEvent = event;
         const props = event.extendedProps;
         setCoachModalLayout();
-        document.getElementById('modalTitle').innerText = event.title;
+        const isCancelled = !!props.isCancelled;
+        document.getElementById('modalTitle').innerText = isCancelled
+            ? `✕ CANCELLED — ${props.sessionTitle || event.title.split('(')[0].trim()}`
+            : event.title;
         
         const solvedVenueName = props.location || "Location Unassigned";
         const solvedAddressText = locationAddressMap[solvedVenueName] ? ` (${locationAddressMap[solvedVenueName]})` : "";
         document.getElementById('modalLocation').innerText = `📍 ${solvedVenueName}${solvedAddressText}`;
 
-        document.getElementById('modalStatus').innerText = `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
+        document.getElementById('modalStatus').innerText = isCancelled
+            ? `Cancelled session · ${props.activeCount + props.waitlistCount} families on roster/waitlist`
+            : `Active Roster: ${props.activeCount}/${props.maxActive} | Waitlist: ${props.waitlistCount}/${props.maxWaitlist}`;
+
+        const cancelledBanner = document.getElementById('coachCancelledBanner');
+        cancelledBanner.style.display = (adminToken && isCancelled) ? 'block' : 'none';
 
         const accessBanner = document.getElementById('coachAccessCodeBanner');
         const accessCode = (props.access_code || '').trim();
@@ -1165,6 +1287,7 @@
         document.getElementById('broadcastSubject').value = "";
         document.getElementById('broadcastMessage').value = "";
         verifiedDiscountAmount = 0;
+        verifiedCouponCode = null;
         currentSessionPrice = props.price;
 
         document.getElementById('overlay').style.display = 'block';
@@ -1172,8 +1295,8 @@
 
         if (adminToken) {
             document.getElementById('parentFormFields').style.display = 'none';
-            document.getElementById('editSessionBtn').style.display = 'block';
-            document.getElementById('deleteSessionBtn').style.display = 'block';
+            document.getElementById('editSessionBtn').style.display = isCancelled ? 'none' : 'block';
+            document.getElementById('deleteSessionBtn').style.display = isCancelled ? 'none' : 'block';
             document.getElementById('coachRosterPanel').style.display = 'block';
             document.getElementById('activeRosterTitle').innerText = `Active Roster (Max ${props.maxActive})`;
             document.getElementById('waitlistRosterTitle').innerText = `Waitlist Position (Max ${props.maxWaitlist})`;
@@ -1182,11 +1305,17 @@
             document.getElementById('btnCopyQuickShare').innerText = "📋 Copy Link";
             
             loadActiveRosterDashboard(event.id);
+            if (isCancelled) {
+                loadSessionArchiveStatus(event.id);
+            } else {
+                document.getElementById('coachArchiveZone').style.display = 'none';
+            }
         } else {
             document.getElementById('parentFormFields').style.display = 'block';
             document.getElementById('editSessionBtn').style.display = 'none';
             document.getElementById('deleteSessionBtn').style.display = 'none';
             document.getElementById('coachRosterPanel').style.display = 'none';
+            document.getElementById('coachArchiveZone').style.display = 'none';
             
             if (props.access_code && props.access_code !== "") {
                 document.getElementById('accessCodeWrapper').style.display = 'block';
@@ -1375,7 +1504,8 @@
             player_name: document.getElementById('playerName').value.trim(),
             parent_email: document.getElementById('parentEmail').value.trim(),
             parent_name: document.getElementById('parentName').value.trim(),
-            paypal_order_id: finalOrderId
+            paypal_order_id: finalOrderId,
+            coupon_code: verifiedCouponCode
         };
 
         fetch('/api/book', {
@@ -1526,14 +1656,90 @@
         });
     }
     
-    async function deleteCurrentSession() {
+    async function archiveCurrentSession() {
+        if (!selectedEvent || !adminToken) return;
+        if (!(await coachConfirm('Archive this cancelled session?\n\nIt will disappear from your calendar and Refunds Center. Registration and refund records are kept in the Operations audit trail.'))) return;
+
+        fetch(`/api/admin/sessions/${selectedEvent.id}/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error + (data.blockers && data.blockers.length ? `\n\n${data.blockers.join('\n')}` : ''));
+                loadSessionArchiveStatus(selectedEvent.id);
+                return;
+            }
+            alert(data.message || 'Session archived.');
+            closeAllModals();
+            calendar.refetchEvents();
+        });
+    }
+
+    function loadSessionArchiveStatus(sessionId) {
+        const zone = document.getElementById('coachArchiveZone');
+        const btn = document.getElementById('archiveSessionBtn');
+        const blockersEl = document.getElementById('coachArchiveBlockers');
+        zone.style.display = 'block';
+        btn.disabled = true;
+        blockersEl.style.display = 'none';
+        blockersEl.innerText = '';
+
+        fetch(`/api/admin/sessions/${sessionId}/archive-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: adminToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                zone.style.display = 'none';
+                return;
+            }
+            if (data.already_archived) {
+                zone.style.display = 'none';
+                return;
+            }
+            if (data.can_archive) {
+                btn.disabled = false;
+                document.getElementById('coachArchiveHelp').innerText =
+                    'All refunds are complete. Archive to remove this session from your calendar and Refunds Center.';
+                return;
+            }
+            btn.disabled = true;
+            if (data.blockers && data.blockers.length) {
+                blockersEl.style.display = 'block';
+                blockersEl.innerText = `Before archiving: ${data.blockers.join(' · ')}`;
+            } else if (data.reason) {
+                blockersEl.style.display = 'block';
+                blockersEl.innerText = data.reason;
+            }
+        })
+        .catch(() => {
+            zone.style.display = 'none';
+        });
+    }
+
+    async function cancelCurrentSession() {
         const sessionLabel = selectedEvent ? selectedEvent.title.split('(')[0].trim() : 'this session';
-        if (!(await coachConfirm(`Permanently delete "${sessionLabel}" and ALL registrations?\n\nThis cannot be undone.`))) return;
+        if (!(await coachConfirm(`Cancel "${sessionLabel}"?\n\nParents will no longer see this session on the calendar. All registrations are kept for refunds and email broadcasts.`))) return;
         fetch(`/api/admin/sessions/${selectedEvent.id}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: adminToken })
-        }).then(res => res.json()).then(() => { closeAllModals(); calendar.refetchEvents(); });
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            alert(data.message || 'Session cancelled.');
+            closeAllModals();
+            calendar.refetchEvents();
+        });
     }
 
     function openCouponModal() {
@@ -1820,19 +2026,25 @@
         if (isActive) {
             document.getElementById('adminBadge').style.display = 'inline-block';
             document.getElementById('authBtn').innerText = "Logout";
-            document.getElementById('manageCouponsBtn').style.display = 'inline-block'; 
-            document.getElementById('contactCoachLink').style.display = 'none'; 
+            document.getElementById('manageCouponsBtn').style.display = 'inline-block';
+            document.getElementById('contactCoachLink').style.display = 'none';
             document.getElementById('filterBar').style.display = 'none';
+            document.getElementById('coachScheduleFilter').style.display = 'flex';
             document.getElementById('linkOpsDashboard').style.display = 'inline-block';
             document.getElementById('linkRefundsCenter').style.display = 'inline-block';
+            updateCoachScheduleButtonUI(new URLSearchParams(window.location.search).get('schedule') || 'active');
         } else {
             document.getElementById('adminBadge').style.display = 'none';
             document.getElementById('authBtn').innerText = "Coach Portal";
-            document.getElementById('manageCouponsBtn').style.display = 'none'; 
-            document.getElementById('contactCoachLink').style.display = 'inline-block'; 
+            document.getElementById('manageCouponsBtn').style.display = 'none';
+            document.getElementById('contactCoachLink').style.display = 'inline-block';
             document.getElementById('filterBar').style.display = 'flex';
+            document.getElementById('coachScheduleFilter').style.display = 'none';
             document.getElementById('linkOpsDashboard').style.display = 'none';
             document.getElementById('linkRefundsCenter').style.display = 'none';
+            const url = new URL(window.location);
+            url.searchParams.delete('schedule');
+            window.history.replaceState({}, '', url);
         }
     }
 
