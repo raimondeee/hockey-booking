@@ -2,6 +2,25 @@ const CALENDAR_TZ = 'America/Los_Angeles';
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEFAULT_CONTACT_EMAIL = 'ben@benstadeyhockey.com';
+const GREETING_MARGIN_BOTTOM = '16px';
+const MESSAGE_BEFORE_SESSION_MARGIN_BOTTOM = '32px';
+
+function buildGreetingHtml(name) {
+    const parent = name || 'there';
+    return `<p style="margin:0 0 ${GREETING_MARGIN_BOTTOM} 0;">Hi <strong>${escapeHtml(parent)}</strong>,</p>`;
+}
+
+function buildIntroMessageHtml(contentHtml) {
+    return `<p style="margin:0 0 ${MESSAGE_BEFORE_SESSION_MARGIN_BOTTOM} 0;">${contentHtml}</p>`;
+}
+
+function buildDraftMessageHtml(message) {
+    return `<div style="margin:0 0 ${MESSAGE_BEFORE_SESSION_MARGIN_BOTTOM} 0;line-height:1.6;">${formatPlainTextAsHtml(message)}</div>`;
+}
+
+function messageBeforeSessionDetailsText() {
+    return '\n\n';
+}
 
 function escapeHtml(value) {
     if (value == null) return '';
@@ -291,8 +310,8 @@ function buildBookingConfirmationHtml(ctx, locationAddress) {
           <p style="margin:0;"><strong>Amount processed:</strong> ${escapeHtml(ctx.amountFormatted)}${amountNoteHtml}</p>`;
 
     const bodyHtml = `
-    <p style="margin:0 0 16px 0;">Hi <strong>${escapeHtml(ctx.parent)}</strong>,</p>
-    <p style="margin:0 0 16px 0;">${ctx.introHtml}</p>
+    ${buildGreetingHtml(ctx.parent)}
+    ${buildIntroMessageHtml(ctx.introHtml)}
     ${buildSessionDetailsBoxHtml({
         sessionTitle: ctx.sessionTitle,
         sessionWhen: ctx.sessionWhen,
@@ -326,9 +345,7 @@ function buildBookingConfirmationText(ctx, locationAddress, calendarBlock) {
 
     const bodyText = `Hi ${ctx.parent},
 
-${ctx.introText}
-
-Status: ${ctx.statusLabel}
+${ctx.introText}${messageBeforeSessionDetailsText()}Status: ${ctx.statusLabel}
 ${amountLine}
 Session time: ${ctx.sessionWhen}${rinkBlock}
 
@@ -361,15 +378,13 @@ function buildBroadcastEmail({
         ? `\n\n${buildCalendarLinksText(calendarLinks, sessionPageUrl)}`
         : '';
 
-    const bodyText = `${message}
-
----
+    const bodyText = `${message}${messageBeforeSessionDetailsText()}---
 ${sessionDetails}${calendarBlock}
 
 Replies go to ${contactEmail}. For coordination questions, contact Ben at ${contactEmail}.`;
 
     const bodyHtml = `
-    <div style="margin:0 0 20px 0;">${formatPlainTextAsHtml(message)}</div>
+    ${buildDraftMessageHtml(message)}
     ${buildSessionDetailsBoxHtml({ sessionTitle, sessionWhen, locationName, locationAddress })}
     ${buildCalendarSectionHtml(calendarLinks, sessionPageUrl)}
     <p style="margin:0;font-size:14px;color:#555;">Replies go to ${escapeHtml(contactEmail)}. For coordination questions, contact Coach Ben at <a href="mailto:${escapeHtml(contactEmail)}" style="color:#0070ba;">${escapeHtml(contactEmail)}</a>.</p>`;
@@ -405,16 +420,15 @@ function buildMovedToWaitlistEmail({
 
     const bodyText = `Hi ${parent},
 
-${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".
-${sessionDetails}${calendarBlock}
+${playerName} has been moved from the active roster to the waitlist for "${sessionTitle}".${messageBeforeSessionDetailsText()}${sessionDetails}${calendarBlock}
 
 If a roster spot opens, you'll automatically receive an email with next steps.
 
 If you have questions, reply to this email or contact ${contactEmail}.`;
 
     const bodyHtml = `
-    <p style="margin:0 0 16px 0;">Hi <strong>${escapeHtml(parent)}</strong>,</p>
-    <p style="margin:0 0 16px 0;"><strong>${escapeHtml(playerName)}</strong> has been moved from the active roster to the <strong>waitlist</strong> for the session below.</p>
+    ${buildGreetingHtml(parent)}
+    ${buildIntroMessageHtml(`<strong>${escapeHtml(playerName)}</strong> has been moved from the active roster to the <strong>waitlist</strong> for the session below.`)}
     ${buildSessionDetailsBoxHtml({ sessionTitle, sessionWhen, locationName, locationAddress })}
     ${buildCalendarSectionHtml(calendarLinks, sessionPageUrl)}
     <p style="margin:0;">If a roster spot opens, you&rsquo;ll automatically receive an email with next steps. If you have questions, reply to this email.</p>`;
@@ -445,14 +459,13 @@ function buildRemovedFromSessionEmail({
 
     const bodyText = `Hi ${parent},
 
-${playerName} has been removed from "${sessionTitle}".
-${sessionDetails}
+${playerName} has been removed from "${sessionTitle}".${messageBeforeSessionDetailsText()}${sessionDetails}
 
 If this was unexpected, please reply or contact ${contactEmail}.`;
 
     const bodyHtml = `
-    <p style="margin:0 0 16px 0;">Hi <strong>${escapeHtml(parent)}</strong>,</p>
-    <p style="margin:0 0 16px 0;"><strong>${escapeHtml(playerName)}</strong> has been removed from the session below.</p>
+    ${buildGreetingHtml(parent)}
+    ${buildIntroMessageHtml(`<strong>${escapeHtml(playerName)}</strong> has been removed from the session below.`)}
     ${buildSessionDetailsBoxHtml({ sessionTitle, sessionWhen, locationName, locationAddress })}
     <p style="margin:0;">If this was unexpected, please reply to this email or contact Coach Ben.</p>`;
 
@@ -493,9 +506,7 @@ function buildRosterOpeningEmail({
 
     const bodyText = `Hi ${parent},
 
-Great news — a roster spot has opened up for ${playerName} in an upcoming training session!
-
-${sessionDetails}
+Great news — a roster spot has opened up for ${playerName} in an upcoming training session!${messageBeforeSessionDetailsText()}${sessionDetails}
 ${calendarBlock}
 
 ${linkLabel}
@@ -508,8 +519,8 @@ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in t
     const ctaUrl = checkoutPaused ? `mailto:${contactEmail}` : claimUrl;
 
     const bodyHtml = `
-    <p style="margin:0 0 16px 0;">Hi <strong>${escapeHtml(parent)}</strong>,</p>
-    <p style="margin:0 0 16px 0;">Great news &mdash; a roster spot has opened up for <strong>${escapeHtml(playerName)}</strong>!</p>
+    ${buildGreetingHtml(parent)}
+    ${buildIntroMessageHtml(`Great news &mdash; a roster spot has opened up for <strong>${escapeHtml(playerName)}</strong>!`)}
     ${buildSessionDetailsBoxHtml({ sessionTitle, sessionWhen, locationName, locationAddress })}
     ${buildCalendarSectionHtml(calendarLinks, sessionPageUrl)}
     ${buildPrimaryButtonHtml(ctaLabel, ctaUrl)}

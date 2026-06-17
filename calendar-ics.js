@@ -1,6 +1,32 @@
 const CALENDAR_TZ = 'America/Los_Angeles';
 const CALENDAR_DOMAIN = 'benstadeyhockey.com';
 
+/** Session times in the DB are Pacific wall-clock strings (no offset). */
+function parseWallClockParts(isoString) {
+    const m = String(isoString || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    return {
+        year: m[1],
+        month: m[2],
+        day: m[3],
+        hour: m[4],
+        minute: m[5],
+        second: m[6] || '00'
+    };
+}
+
+function formatIcsDateTimePT(isoString) {
+    const parts = parseWallClockParts(isoString);
+    if (!parts) return null;
+    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
+}
+
+function formatGoogleCalDatePT(isoString) {
+    const parts = parseWallClockParts(isoString);
+    if (!parts) return '';
+    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
+}
+
 function escapeIcsText(value) {
     if (value == null) return '';
     return String(value)
@@ -8,24 +34,6 @@ function escapeIcsText(value) {
         .replace(/\n/g, '\\n')
         .replace(/,/g, '\\,')
         .replace(/;/g, '\\;');
-}
-
-function formatIcsDateTimePT(isoString) {
-    const d = new Date(isoString);
-    if (Number.isNaN(d.getTime())) return null;
-    const parts = Object.fromEntries(
-        new Intl.DateTimeFormat('en-US', {
-            timeZone: CALENDAR_TZ,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hourCycle: 'h23'
-        }).formatToParts(d).map((p) => [p.type, p.value])
-    );
-    return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}`;
 }
 
 function toGoogleCalUtc(isoString) {
@@ -106,14 +114,15 @@ function buildIcsCalendar(sessions, options = {}) {
 }
 
 function buildGoogleCalendarUrl(session, options = {}) {
-    const start = toGoogleCalUtc(session.start_time);
-    const end = toGoogleCalUtc(session.end_time);
+    const start = formatGoogleCalDatePT(session.start_time);
+    const end = formatGoogleCalDatePT(session.end_time);
     if (!start || !end) return '';
 
     const params = new URLSearchParams({
         action: 'TEMPLATE',
         text: session.title,
         dates: `${start}/${end}`,
+        ctz: CALENDAR_TZ,
         details: buildSessionDescription(session, options),
         location: buildSessionLocation(session, options.locationAddressMap || {})
     });
