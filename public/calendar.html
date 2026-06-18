@@ -518,7 +518,41 @@
         .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn-primary { background: #0070ba; color: white; }
         .btn-primary:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
-        .btn-secondary { background: #6c757d; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-right: 10px; }
+        .btn-secondary { background: #6c757d; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-right: 10px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+
+        .btn-home-link .btn-home-icon {
+            display: none;
+        }
+
+        .filter-btn .filter-text-mobile,
+        .filter-btn .filter-label-short {
+            display: none;
+        }
+
+        .calendar-layout-stack {
+            width: 95%;
+            max-width: 960px;
+            margin: 0 auto 20px;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        .calendar-layout-stack #calendar {
+            width: 100%;
+            margin: 0;
+        }
+
+        .calendar-layout-stack .calendar-subscribe-bar {
+            width: 100%;
+            margin-left: 0;
+            margin-right: 0;
+        }
+
+        @media (min-width: 601px) {
+            .calendar-layout-stack .calendar-subscribe-bar { order: 1; margin-bottom: 16px; }
+            .calendar-layout-stack #calendar { order: 2; }
+        }
         .btn-danger { background: #dc3545; color: white; margin-top: 10px; width: 100%; }
         .close-btn { float: right; cursor: pointer; font-size: 20px; }
         
@@ -626,15 +660,50 @@
 
         @media (max-width: 600px) {
             body { padding-bottom: 120px; }
-            .header-bar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 20px; }
-            .header-left { width: 100%; display: block; text-align: left; }
-            .header-right { width: 100%; justify-content: flex-end; margin-top: -46px; }
+            .header-bar {
+                flex-direction: row;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+            .header-left { width: auto; display: flex; align-items: flex-start; }
+            .header-right {
+                width: auto;
+                margin-top: 0;
+                justify-content: flex-end;
+                align-items: flex-start;
+                flex-shrink: 0;
+            }
+            .btn-home-link {
+                margin-right: 0;
+                padding: 10px 12px;
+                min-width: 44px;
+                min-height: 44px;
+            }
+            .btn-home-link .btn-home-text { display: none; }
+            .btn-home-link .btn-home-icon { display: block; }
+            #authBtn {
+                padding: 10px 15px;
+                min-height: 44px;
+                box-sizing: border-box;
+            }
             #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
             #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(18, 18, 18, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); border: 1px solid #1a1a1a; z-index: 998; }
             #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
             .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
             .filter-controls { flex-wrap: wrap; padding: 10px; }
-            .filter-label { width: 100%; margin-bottom: 4px; }
+            #filterBar .filter-label { display: none; }
+            .filter-btn .filter-text-full,
+            .filter-btn .filter-label-full { display: none; }
+            .filter-btn .filter-text-mobile,
+            .filter-btn .filter-label-short { display: inline; }
+            .calendar-layout-stack .calendar-subscribe-bar {
+                order: 2;
+                margin-top: 16px;
+                margin-bottom: 0;
+            }
+            .calendar-layout-stack #calendar { order: 1; }
         }
     </style>
 </head>
@@ -642,7 +711,13 @@
 
 <div class="header-bar">
     <div class="header-left">
-        <a href="/index.html" class="btn-secondary">← Back to Home</a>
+        <a href="/index.html" class="btn-secondary btn-home-link" aria-label="Back to home">
+            <svg class="btn-home-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 10.5 12 4l8 6.5"/>
+                <path d="M6 10v10h12V10"/>
+            </svg>
+            <span class="btn-home-text">← Back to Home</span>
+        </a>
     </div>
     <div class="header-right">
         <button id="manageCouponsBtn" class="btn btn-secondary" style="display: none; background: #343a40; margin-right: 10px; padding: 8px 14px;" onclick="openCouponModal()">🎟️ Manage Coupons</button>
@@ -655,9 +730,9 @@
 
 <div class="filter-controls" id="filterBar">
     <span class="filter-label">Filter Schedule:</span>
-    <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')">Show All</button>
-    <button class="filter-btn" id="filterBtn-large" onclick="applyLiveFilter('large')">Large Group Clinics</button>
-    <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')">Small Group Sessions</button>
+    <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')"><span class="filter-text-full">Show All</span><span class="filter-text-mobile">Show all groups</span></button>
+    <button class="filter-btn" id="filterBtn-large" onclick="applyLiveFilter('large')"><span class="filter-label-full">Large Group Clinics</span><span class="filter-label-short">Large</span></button>
+    <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')"><span class="filter-label-full">Small Group Sessions</span><span class="filter-label-short">Small</span></button>
 </div>
 
 <div class="filter-controls coach-schedule-filter" id="coachScheduleFilter">
@@ -667,14 +742,16 @@
     <button class="filter-btn coach-schedule-btn" id="scheduleBtn-all" onclick="applyCoachScheduleFilter('all')">All Sessions</button>
 </div>
 
+<div class="calendar-layout-stack">
+<div id="calendar"></div>
+
 <div class="calendar-subscribe-bar" id="calendarSubscribeBar">
     <strong>📅 Add schedule to your calendar</strong>
     <a id="subscribeGoogleLink" href="#" target="_blank" rel="noopener">Google Calendar</a>
     <a id="subscribeAppleLink" href="/calendar/sessions.ics">Apple / Outlook (.ics)</a>
     <button type="button" class="calendar-subscribe-copy" id="subscribeCopyBtn" title="For Google: Settings → Add calendar → From URL">Copy https link</button>
 </div>
-
-<div id="calendar"></div>
+</div>
 
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink" target="_blank">✉ Contact Coach</a>
