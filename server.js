@@ -35,6 +35,21 @@ const LOCATION_ADDRESS_MAP = {
     "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
 };
 
+function normalizeEventColor(color) {
+    return color === 'red' ? 'red' : 'blue';
+}
+
+function getDefaultActiveCapacity(eventType, customCapacity) {
+    if (customCapacity) return customCapacity;
+    if (eventType === 'small' || eventType === 'private') return 5;
+    return 25;
+}
+
+function getDefaultWaitlistCapacity(eventType) {
+    if (eventType === 'small' || eventType === 'private') return 3;
+    return 15;
+}
+
 // Secure Production Profile Configurations
 const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
 const ADMIN_PASSWORD = process.env.ADMIN_PASS; 
@@ -670,7 +685,17 @@ app.get('/api/sessions', (req, res) => {
         
         db.all(query, [], (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json(rows);
+
+            let sessions = rows || [];
+            if (!coachView) {
+                const deepLinkSessionId = req.query.session_id ? String(req.query.session_id) : null;
+                sessions = sessions.filter((row) => {
+                    if (row.event_type !== 'private') return true;
+                    return deepLinkSessionId && String(row.id) === deepLinkSessionId;
+                });
+            }
+
+            res.json(sessions);
         });
     });
 });
@@ -898,8 +923,8 @@ app.post('/api/book', async (req, res) => {
             }
 
             // Honor custom_capacity override if configured, otherwise drop back to template standards
-            let maxActive = session.custom_capacity ? session.custom_capacity : (session.event_type === 'small' ? 5 : 25);
-            let maxWaitlist = session.event_type === 'small' ? 3 : 15;
+            let maxActive = getDefaultActiveCapacity(session.event_type, session.custom_capacity);
+            let maxWaitlist = getDefaultWaitlistCapacity(session.event_type);
             if (!siteSettings.paypal_checkout_enabled) {
                 maxWaitlist = OFFLINE_PAYMENT_WAITLIST_CAP;
             }
@@ -1077,18 +1102,30 @@ function verifyAdminToken(req, res, next) {
 
 // 5. Admin Portal: Create an empty calendar slot
 app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
-    const { title, start_time, end_time, price, event_type, access_code, location } = req.body; 
-    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    db.run(insertQuery, [title, start_time, end_time, price, event_type || 'large', access_code ? access_code.trim() : null, location || null], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, id: this.lastID });
-    });
+    const { title, start_time, end_time, price, event_type, access_code, location, event_color } = req.body;
+    const type = event_type || 'large';
+    const color = normalizeEventColor(event_color);
+    const cleanAccessCode = type === 'private'
+        ? null
+        : (access_code && access_code.trim() ? access_code.trim() : null);
+    const defaultCapacity = type === 'private' ? 5 : null;
+
+    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location, event_color, custom_capacity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    db.run(
+        insertQuery,
+        [title, start_time, end_time, price, type, cleanAccessCode, location || null, color, defaultCapacity],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, id: this.lastID });
+        }
+    );
 });
 
 // 5a. Admin Portal: Update an existing session (time, location, price, etc.)
 app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
-    const { title, start_time, end_time, price, event_type, access_code, location } = req.body;
+    const { title, start_time, end_time, price, event_type, access_code, location, event_color } = req.body;
 
     if (!title || !start_time || !end_time) {
         return res.status(400).json({ error: 'Title, start time, and end time are required.' });
@@ -1101,7 +1138,10 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     }
 
     const type = event_type || 'large';
-    const cleanAccessCode = access_code && access_code.trim() ? access_code.trim() : null;
+    const color = normalizeEventColor(event_color);
+    const cleanAccessCode = type === 'private'
+        ? null
+        : (access_code && access_code.trim() ? access_code.trim() : null);
 
     db.get(
         `SELECT s.custom_capacity,
@@ -1112,7 +1152,7 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!row) return res.status(404).json({ error: 'Session not found.' });
 
-            const maxActive = row.custom_capacity ? row.custom_capacity : (type === 'small' ? 5 : 25);
+            const maxActive = getDefaultActiveCapacity(type, row.custom_capacity);
             if (row.active_count > maxActive) {
                 return res.status(400).json({
                     error: `This session has ${row.active_count} active skaters, which exceeds the ${maxActive}-player limit for the selected format. Increase max roster or remove skaters first.`
@@ -1121,9 +1161,9 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
 
             db.run(
                 `UPDATE sessions
-                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?
+                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?, event_color = ?
                  WHERE id = ?`,
-                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, sessionId],
+                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, color, sessionId],
                 function(updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.message });
                     if (this.changes === 0) return res.status(404).json({ error: 'Session not found.' });
@@ -1513,7 +1553,7 @@ app.post('/api/admin/bookings/:id/promote', verifyAdminToken, (req, res) => {
 
             const maxActive = booking.custom_capacity
                 ? booking.custom_capacity
-                : (booking.event_type === 'small' ? 5 : 25);
+                : getDefaultActiveCapacity(booking.event_type, booking.custom_capacity);
 
             db.get(
                 `SELECT COUNT(*) AS active_count FROM bookings WHERE session_id = ? AND status = 'active'`,
@@ -1694,7 +1734,7 @@ app.post('/api/admin/ledger/summary', verifyAdminToken, (req, res) => {
 
             let maxPossibleCapacity = 0;
             sessions.forEach(s => { 
-                maxPossibleCapacity += s.custom_capacity ? s.custom_capacity : (s.event_type === 'small' ? 5 : 25); 
+                maxPossibleCapacity += getDefaultActiveCapacity(s.event_type, s.custom_capacity); 
             });
 
             const totalActiveBookings = financeRow.total_registrations || 0;

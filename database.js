@@ -94,6 +94,7 @@ db.serialize(() => {
     db.run(`ALTER TABLE sessions ADD COLUMN cancelled_at TEXT DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE sessions ADD COLUMN archived_at TEXT DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN coupon_code TEXT DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE sessions ADD COLUMN event_color TEXT DEFAULT 'blue'`, (err) => {});
 });
 
 module.exports = db;

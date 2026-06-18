@@ -96,9 +96,14 @@ function buildSessionLocation(session, locationAddressMap = {}) {
 }
 
 function buildSessionDescription(session, extras = {}) {
+    const typeLabels = {
+        small: 'Small group session',
+        private: 'Private lesson',
+        large: 'Large group clinic'
+    };
     const lines = [
         'Ben Stadey Hockey Training',
-        session.event_type === 'small' ? 'Small group session' : 'Large group clinic'
+        typeLabels[session.event_type] || typeLabels.large
     ];
     if (extras.playerName) lines.push(`Player: ${extras.playerName}`);
     if (session.price != null && session.price > 0) {
@@ -215,6 +220,7 @@ function formatCalendarLinksText(links, extras = {}) {
 }
 
 function isPublicSession(session) {
+    if (session.event_type === 'private') return false;
     return !session.access_code || String(session.access_code).trim() === '';
 }
 

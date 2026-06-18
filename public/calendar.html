@@ -305,6 +305,58 @@
             color: #58151c;
         }
 
+        .coach-private-banner {
+            display: none;
+            background: #ede7f6;
+            border: 1px solid #7e57c2;
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin: 0 0 14px 0;
+            font-size: 13px;
+            color: #4527a0;
+            line-height: 1.5;
+        }
+
+        .coach-private-banner strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .event-color-picker {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .event-color-option {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .event-color-swatch {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid #ccc;
+        }
+
+        .event-color-swatch.blue { background: #0070ba; }
+        .event-color-swatch.red { background: #c62828; }
+
+        .event-color-option input:checked + .event-color-swatch {
+            box-shadow: 0 0 0 2px #fff, 0 0 0 4px #333;
+        }
+
+        .session-form-hint {
+            font-size: 12px;
+            color: #666;
+            margin: -6px 0 10px 0;
+            line-height: 1.4;
+        }
+
         .coach-cancelled-banner {
             display: none;
             background: #fde8e8;
@@ -646,6 +698,11 @@
         <strong>🔒 Access code restriction</strong>
         Parents must enter: <code id="coachAccessCodeValue"></code>
     </div>
+
+    <div id="coachPrivateLessonBanner" class="coach-private-banner" aria-live="polite">
+        <strong>🔒 Private lesson — invite only</strong>
+        Hidden from the public calendar. Copy the share link below and send it directly to the family.
+    </div>
     
     <div id="parentFormFields">
         <div class="input-group" id="accessCodeWrapper" style="display:none;">
@@ -807,10 +864,26 @@
     <div class="input-group"><label>Event Title</label><input type="text" id="newTitle" placeholder="e.g., Power Skating"></div>
     <div class="input-group">
         <label>Event Group Classification</label>
-        <select id="newEventType">
+        <select id="newEventType" onchange="syncSessionFormFieldsForEventType()">
             <option value="large">Large Group Skill Clinic (Max 25)</option>
             <option value="small">Small Group Session (Max 5)</option>
+            <option value="private">Private Lesson (invite-only, default max 5)</option>
         </select>
+    </div>
+    <div class="input-group">
+        <label>Calendar Color</label>
+        <div class="event-color-picker">
+            <label class="event-color-option">
+                <input type="radio" name="newEventColor" value="blue" checked>
+                <span class="event-color-swatch blue" aria-hidden="true"></span>
+                Blue
+            </label>
+            <label class="event-color-option">
+                <input type="radio" name="newEventColor" value="red">
+                <span class="event-color-swatch red" aria-hidden="true"></span>
+                Red
+            </label>
+        </div>
     </div>
     <div class="input-group">
         <label>Ice Rink Location *</label>
@@ -820,7 +893,8 @@
             <option value="The Veterans Memorial Coliseum (VMC)">The Veterans Memorial Coliseum (VMC)</option>
         </select>
     </div>
-    <div class="input-group"><label>Access Code Restriction (Optional)</label><input type="text" id="newAccessCode" placeholder="Optional code"></div>
+    <div class="input-group" id="newAccessCodeGroup"><label>Access Code Restriction (Optional)</label><input type="text" id="newAccessCode" placeholder="Optional code"></div>
+    <p id="privateLessonFormHint" class="session-form-hint" style="display:none;">Private lessons are hidden from the public calendar. Share the event link with families after publishing.</p>
     <div class="input-group"><label>Start Date & Time</label><input type="datetime-local" id="newStart"></div>
     <div class="input-group"><label>End Date & Time</label><input type="datetime-local" id="newEnd"></div>
     <div class="input-group"><label>Session Cost ($)</label><input type="number" id="newPrice" value="40.00"></div>
@@ -874,6 +948,60 @@
         "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
         "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
     };
+
+    const EVENT_COLOR_STYLES = {
+        blue: { bg: '#0070ba', border: '#005fa3', fullBg: '#555555', fullBorder: '#444444' },
+        red: { bg: '#c62828', border: '#8e0000', fullBg: '#6d2828', fullBorder: '#4a1a1a' }
+    };
+
+    function getDefaultCapacityForType(eventType) {
+        if (eventType === 'small' || eventType === 'private') return 5;
+        return 25;
+    }
+
+    function getDefaultWaitlistForType(eventType) {
+        if (eventType === 'small' || eventType === 'private') return 3;
+        return 15;
+    }
+
+    function resolveEventColors(session, isCancelled, isFull, start, end, now) {
+        const palette = EVENT_COLOR_STYLES[session.event_color === 'red' ? 'red' : 'blue'];
+        let bg = palette.bg;
+        let border = palette.border;
+
+        if (isCancelled) {
+            bg = '#8b2e2e';
+            border = '#6d2424';
+        } else if (adminToken) {
+            if (end < now) { bg = '#6c757d'; border = '#5a6268'; }
+            else if (start <= now && end >= now) { bg = isFull ? '#5a6268' : '#28a745'; border = '#1e7e34'; }
+            else if (isFull) { bg = palette.fullBg; border = palette.fullBorder; }
+        } else if (isFull) {
+            bg = palette.fullBg;
+            border = palette.fullBorder;
+        }
+
+        return { bg, border };
+    }
+
+    function getSelectedEventColor() {
+        const selected = document.querySelector('input[name="newEventColor"]:checked');
+        return selected && selected.value === 'red' ? 'red' : 'blue';
+    }
+
+    function setSelectedEventColor(color) {
+        const value = color === 'red' ? 'red' : 'blue';
+        const input = document.querySelector(`input[name="newEventColor"][value="${value}"]`);
+        if (input) input.checked = true;
+    }
+
+    function syncSessionFormFieldsForEventType() {
+        const eventType = document.getElementById('newEventType').value;
+        const isPrivate = eventType === 'private';
+        document.getElementById('newAccessCodeGroup').style.display = isPrivate ? 'none' : 'block';
+        document.getElementById('privateLessonFormHint').style.display = isPrivate ? 'block' : 'none';
+        if (isPrivate) document.getElementById('newAccessCode').value = '';
+    }
 
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -946,9 +1074,13 @@
                 const currentUrlParams = new URLSearchParams(window.location.search);
                 const filterType = currentUrlParams.get('type');
                 const scheduleFilter = adminToken ? (currentUrlParams.get('schedule') || 'active') : 'active';
-                const sessionsUrl = adminToken
-                    ? `/api/sessions?token=${encodeURIComponent(adminToken)}`
-                    : '/api/sessions';
+                const deepLinkSessionId = currentUrlParams.get('session_id');
+                let sessionsUrl = '/api/sessions';
+                if (adminToken) {
+                    sessionsUrl = `/api/sessions?token=${encodeURIComponent(adminToken)}`;
+                } else if (deepLinkSessionId) {
+                    sessionsUrl = `/api/sessions?session_id=${encodeURIComponent(deepLinkSessionId)}`;
+                }
 
                 fetch(sessionsUrl)
                     .then(res => res.json())
@@ -967,32 +1099,24 @@
 
                         const events = filteredData.map(session => {
                             const isCancelled = !!session.cancelled_at;
-                            const isSmallGroup = session.event_type === 'small';
-                            const targetCap = session.custom_capacity ? session.custom_capacity : (isSmallGroup ? 5 : 25);
+                            const isPrivate = session.event_type === 'private';
+                            const targetCap = session.custom_capacity ? session.custom_capacity : getDefaultCapacityForType(session.event_type);
                             const checkoutPaused = !siteConfig.paypal_checkout_enabled;
                             const targetWaitlistCap = checkoutPaused
                                 ? (siteConfig.offline_waitlist_cap || 40)
-                                : (isSmallGroup ? 3 : 15);
+                                : getDefaultWaitlistForType(session.event_type);
                             const isFull = checkoutPaused
                                 ? session.waitlist_count >= targetWaitlistCap
                                 : session.active_count >= targetCap;
-                            const isLocked = session.access_code && session.access_code !== "";
-                            const titlePrefix = isCancelled ? '' : (isLocked ? "🔒 " : "");
+                            const isLocked = !isPrivate && session.access_code && session.access_code !== "";
+                            const titlePrefix = isCancelled
+                                ? ''
+                                : (isPrivate && adminToken ? '🔒 ' : (isLocked ? "🔒 " : ""));
 
                             const now = new Date();
                             const start = new Date(session.start_time);
                             const end = new Date(session.end_time);
-                            let bg = isFull ? '#555555' : '#0070ba';
-                            let border = isFull ? '#444444' : '#005fa3';
-                            if (isCancelled) {
-                                bg = '#8b2e2e';
-                                border = '#6d2424';
-                            } else if (adminToken) {
-                                if (end < now) { bg = '#6c757d'; border = '#5a6268'; }
-                                else if (start <= now && end >= now) { bg = isFull ? '#5a6268' : '#28a745'; border = '#1e7e34'; }
-                                else if (isFull) { bg = '#555555'; border = '#444444'; }
-                                else { bg = '#0070ba'; border = '#005fa3'; }
-                            }
+                            const { bg, border } = resolveEventColors(session, isCancelled, isFull, start, end, now);
 
                             const countLabel = isCancelled
                                 ? `${session.active_count + session.waitlist_count} registered`
@@ -1013,6 +1137,7 @@
                                     price: session.price,
                                     access_code: session.access_code,
                                     event_type: session.event_type,
+                                    event_color: session.event_color || 'blue',
                                     maxActive: targetCap,
                                     maxWaitlist: targetWaitlistCap,
                                     custom_capacity: session.custom_capacity,
@@ -1121,7 +1246,7 @@
         const waiverChecked = document.getElementById('waiverCheckbox').checked;
 
         let accessPasses = true;
-        if (selectedEvent && selectedEvent.extendedProps.access_code) {
+        if (selectedEvent && selectedEvent.extendedProps.access_code && selectedEvent.extendedProps.event_type !== 'private') {
             const inputCode = document.getElementById('parentAccessCode').value.trim();
             accessPasses = (inputCode === selectedEvent.extendedProps.access_code);
         }
@@ -1269,13 +1394,23 @@
         cancelledBanner.style.display = (adminToken && isCancelled) ? 'block' : 'none';
 
         const accessBanner = document.getElementById('coachAccessCodeBanner');
+        const privateBanner = document.getElementById('coachPrivateLessonBanner');
         const accessCode = (props.access_code || '').trim();
-        if (adminToken && accessCode) {
-            document.getElementById('coachAccessCodeValue').innerText = accessCode;
-            accessBanner.style.display = 'block';
-        } else {
+        const isPrivateLesson = props.event_type === 'private';
+
+        if (adminToken && isPrivateLesson) {
+            privateBanner.style.display = 'block';
             accessBanner.style.display = 'none';
             document.getElementById('coachAccessCodeValue').innerText = '';
+        } else {
+            privateBanner.style.display = 'none';
+            if (adminToken && accessCode) {
+                document.getElementById('coachAccessCodeValue').innerText = accessCode;
+                accessBanner.style.display = 'block';
+            } else {
+                accessBanner.style.display = 'none';
+                document.getElementById('coachAccessCodeValue').innerText = '';
+            }
         }
 
         document.getElementById('parentName').value = "";
@@ -1317,7 +1452,9 @@
             document.getElementById('coachRosterPanel').style.display = 'none';
             document.getElementById('coachArchiveZone').style.display = 'none';
             
-            if (props.access_code && props.access_code !== "") {
+            if (props.event_type === 'private') {
+                document.getElementById('accessCodeWrapper').style.display = 'none';
+            } else if (props.access_code && props.access_code !== "") {
                 document.getElementById('accessCodeWrapper').style.display = 'block';
                 document.getElementById('parentAccessCode').value = "";
             } else {
@@ -1561,6 +1698,8 @@
         document.getElementById('newEnd').value = `${dateStr}T18:30`;
         document.getElementById('newPrice').value = '40.00';
         document.getElementById('newEventType').value = 'large';
+        setSelectedEventColor('blue');
+        syncSessionFormFieldsForEventType();
         document.getElementById('newLocation').selectedIndex = 0;
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
@@ -1573,6 +1712,8 @@
         setCoachModalLayout();
         document.getElementById('newTitle').value = props.sessionTitle || selectedEvent.title.split('(')[0].replace(/^🔒\s*/, '').trim();
         document.getElementById('newEventType').value = props.event_type || 'large';
+        setSelectedEventColor(props.event_color || 'blue');
+        syncSessionFormFieldsForEventType();
         document.getElementById('newLocation').value = props.location || 'Sherwood Ice Arena';
         document.getElementById('newAccessCode').value = props.access_code || '';
         document.getElementById('newStart').value = toDatetimeLocalValue(selectedEvent.start);
@@ -1604,6 +1745,7 @@
             token: adminToken,
             title: document.getElementById('newTitle').value.trim() || 'Skills Session',
             event_type: document.getElementById('newEventType').value,
+            event_color: getSelectedEventColor(),
             location: document.getElementById('newLocation').value,
             access_code: document.getElementById('newAccessCode').value,
             start_time: startVal,
