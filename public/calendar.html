@@ -324,30 +324,63 @@
 
         .event-color-picker {
             display: flex;
-            gap: 12px;
-            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .event-color-option {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 14px;
+            position: relative;
             cursor: pointer;
         }
 
+        .event-color-option input {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            margin: 0;
+            pointer-events: none;
+        }
+
+        .event-color-chip {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            border: 2px solid #d1d5db;
+            border-radius: 8px;
+            background: #fff;
+            min-width: 72px;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .event-color-option:hover .event-color-chip {
+            border-color: #9ca3af;
+        }
+
+        .event-color-option input:checked + .event-color-chip {
+            border-color: #1e293b;
+            box-shadow: 0 0 0 1px #1e293b;
+            background: #f8fafc;
+        }
+
         .event-color-swatch {
-            width: 18px;
-            height: 18px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
-            border: 2px solid #ccc;
+            flex-shrink: 0;
         }
 
         .event-color-swatch.blue { background: #0070ba; }
         .event-color-swatch.red { background: #c62828; }
+        .event-color-swatch.green { background: #2e7d32; }
 
-        .event-color-option input:checked + .event-color-swatch {
-            box-shadow: 0 0 0 2px #fff, 0 0 0 4px #333;
+        .event-color-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #334155;
+            line-height: 1;
         }
 
         .session-form-hint {
@@ -872,16 +905,27 @@
     </div>
     <div class="input-group">
         <label>Calendar Color</label>
-        <div class="event-color-picker">
+        <div class="event-color-picker" role="radiogroup" aria-label="Calendar color">
             <label class="event-color-option">
                 <input type="radio" name="newEventColor" value="blue" checked>
-                <span class="event-color-swatch blue" aria-hidden="true"></span>
-                Blue
+                <span class="event-color-chip">
+                    <span class="event-color-swatch blue" aria-hidden="true"></span>
+                    <span class="event-color-label">Blue</span>
+                </span>
             </label>
             <label class="event-color-option">
                 <input type="radio" name="newEventColor" value="red">
-                <span class="event-color-swatch red" aria-hidden="true"></span>
-                Red
+                <span class="event-color-chip">
+                    <span class="event-color-swatch red" aria-hidden="true"></span>
+                    <span class="event-color-label">Red</span>
+                </span>
+            </label>
+            <label class="event-color-option">
+                <input type="radio" name="newEventColor" value="green">
+                <span class="event-color-chip">
+                    <span class="event-color-swatch green" aria-hidden="true"></span>
+                    <span class="event-color-label">Green</span>
+                </span>
             </label>
         </div>
     </div>
@@ -951,8 +995,11 @@
 
     const EVENT_COLOR_STYLES = {
         blue: { bg: '#0070ba', border: '#005fa3', fullBg: '#555555', fullBorder: '#444444' },
-        red: { bg: '#c62828', border: '#8e0000', fullBg: '#6d2828', fullBorder: '#4a1a1a' }
+        red: { bg: '#c62828', border: '#8e0000', fullBg: '#6d2828', fullBorder: '#4a1a1a' },
+        green: { bg: '#2e7d32', border: '#1b5e20', fullBg: '#3d5240', fullBorder: '#2d3b2f' }
     };
+
+    const VALID_EVENT_COLORS = ['blue', 'red', 'green'];
 
     function getDefaultCapacityForType(eventType) {
         if (eventType === 'small' || eventType === 'private') return 5;
@@ -965,7 +1012,8 @@
     }
 
     function resolveEventColors(session, isCancelled, isFull, start, end, now) {
-        const palette = EVENT_COLOR_STYLES[session.event_color === 'red' ? 'red' : 'blue'];
+        const colorKey = VALID_EVENT_COLORS.includes(session.event_color) ? session.event_color : 'blue';
+        const palette = EVENT_COLOR_STYLES[colorKey];
         let bg = palette.bg;
         let border = palette.border;
 
@@ -986,11 +1034,12 @@
 
     function getSelectedEventColor() {
         const selected = document.querySelector('input[name="newEventColor"]:checked');
-        return selected && selected.value === 'red' ? 'red' : 'blue';
+        const value = selected ? selected.value : 'blue';
+        return VALID_EVENT_COLORS.includes(value) ? value : 'blue';
     }
 
     function setSelectedEventColor(color) {
-        const value = color === 'red' ? 'red' : 'blue';
+        const value = VALID_EVENT_COLORS.includes(color) ? color : 'blue';
         const input = document.querySelector(`input[name="newEventColor"][value="${value}"]`);
         if (input) input.checked = true;
     }

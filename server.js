@@ -36,7 +36,9 @@ const LOCATION_ADDRESS_MAP = {
 };
 
 function normalizeEventColor(color) {
-    return color === 'red' ? 'red' : 'blue';
+    const value = String(color || 'blue').toLowerCase();
+    if (value === 'red' || value === 'green') return value;
+    return 'blue';
 }
 
 function getDefaultActiveCapacity(eventType, customCapacity) {
