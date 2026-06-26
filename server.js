@@ -139,25 +139,103 @@ function runExpiredReservationsSweep(callback) {
     });
 }
 
-// Helper function to fetch an authorization token from PayPal's Live production API
+function getPayPalHost() {
+    return process.env.PAYPAL_MODE === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+}
+
+function assertPayPalCredentials() {
+    if (!process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_SECRET) {
+        throw new Error('PayPal credentials are not configured on the server.');
+    }
+}
+
 async function getPayPalAccessToken() {
+    assertPayPalCredentials();
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
-    // FIX: Removed the duplicate duplicated subdomain string in the fallback URL
-    const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
-    
-    const response = await fetch(`${paypalHost}/v1/oauth2/token`, {
+    const response = await fetch(`${getPayPalHost()}/v1/oauth2/token`, {
         method: 'POST',
         body: 'grant_type=client_credentials',
         headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
     const data = await response.json();
+    if (!response.ok || !data.access_token) {
+        const detail = data.error_description || data.error || response.statusText;
+        console.error('[PAYPAL AUTH ERROR]', JSON.stringify(data));
+        throw new Error(`PayPal authentication failed: ${detail}`);
+    }
     return data.access_token;
 }
 
-function getPayPalHost() {
-    return process.env.PAYPAL_MODE === 'live'
-        ? 'https://api-m.paypal.com'
-        : 'https://api-m.sandbox.paypal.com';
+async function paypalApiFetch(path, options = {}, allowRetry = true) {
+    const accessToken = await getPayPalAccessToken();
+    const response = await fetch(`${getPayPalHost()}${path}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+            'Authorization': `Bearer ${accessToken}`
+        }
+    });
+    if (response.status === 401 && allowRetry) {
+        return paypalApiFetch(path, options, false);
+    }
+    return response;
+}
+
+function computeDiscountedPrice(basePrice, couponRow) {
+    const price = parseFloat(basePrice);
+    if (!couponRow) return Math.max(0, price);
+    let discount = 0;
+    if (couponRow.discount_type === 'fixed') discount = parseFloat(couponRow.discount_value);
+    else if (couponRow.discount_type === 'percent') discount = price * (parseFloat(couponRow.discount_value) / 100);
+    return Math.max(0, price - discount);
+}
+
+function dbGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+    });
+}
+
+async function createPayPalCheckoutOrder({ amountValue, description, experienceContext }) {
+    const amount = parseFloat(amountValue);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error('Checkout amount must be greater than zero.');
+    }
+
+    const body = {
+        intent: 'CAPTURE',
+        purchase_units: [{
+            amount: { currency_code: 'USD', value: amount.toFixed(2) },
+            description: description || 'Hockey Training Session'
+        }]
+    };
+
+    if (experienceContext) {
+        body.payment_source = {
+            paypal: { experience_context: experienceContext }
+        };
+    } else {
+        body.application_context = {
+            shipping_preference: 'NO_SHIPPING',
+            brand_name: 'Ben Stadey Hockey Training',
+            user_action: 'PAY_NOW'
+        };
+    }
+
+    const orderRes = await paypalApiFetch('/v2/checkout/orders', {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+    const orderData = await orderRes.json();
+    if (!orderRes.ok || !orderData.id) {
+        console.error('[PAYPAL ORDER ERROR]', JSON.stringify(orderData));
+        const detail = orderData.message || orderData.error_description || orderData.error || 'Unknown error';
+        throw new Error(`PayPal order creation failed: ${detail}`);
+    }
+    return orderData;
 }
 
 const OFFLINE_PAYMENT_WAITLIST_CAP = 40;
@@ -589,13 +667,8 @@ async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
 
     const refundValue = parseFloat(refundAmount).toFixed(2);
     const paypalOrderId = resolvePayPalOrderId(booking.paypal_order_id);
-    const accessToken = await getPayPalAccessToken();
-    const paypalHost = getPayPalHost();
 
-    const orderRes = await fetch(`${paypalHost}/v2/checkout/orders/${paypalOrderId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
-    });
+    const orderRes = await paypalApiFetch(`/v2/checkout/orders/${paypalOrderId}`, { method: 'GET' });
     const orderData = await orderRes.json();
 
     const captureId = orderData?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
@@ -605,9 +678,8 @@ async function issuePayPalRefund(bookingId, refundAmount, options = {}) {
         throw err;
     }
 
-    const refundRes = await fetch(`${paypalHost}/v2/payments/captures/${captureId}/refund`, {
+    const refundRes = await paypalApiFetch(`/v2/payments/captures/${captureId}/refund`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             amount: { value: refundValue, currency_code: 'USD' },
             note_to_payer: `Refund issued by Coach Ben for ${booking.player_name}'s hockey training session.`
@@ -819,6 +891,77 @@ app.get('/api/config/paypal-client-id', async (req, res) => {
     }
 });
 
+app.post('/api/paypal/create-order', async (req, res) => {
+    const { session_id, booking_id, coupon_code } = req.body;
+
+    try {
+        const siteSettings = await getSiteSettings();
+        if (!siteSettings.paypal_checkout_enabled) {
+            return res.status(503).json({ error: 'Online checkout is temporarily unavailable.' });
+        }
+
+        assertPayPalCredentials();
+
+        let amountValue;
+        let description;
+        let experienceContext = null;
+
+        if (booking_id) {
+            const row = await dbGet(
+                `SELECT b.id, b.player_name, b.status, s.id as session_id, s.title, s.price, s.cancelled_at, s.archived_at
+                 FROM bookings b
+                 JOIN sessions s ON b.session_id = s.id
+                 WHERE b.id = ?`,
+                [booking_id]
+            );
+            if (!row) return res.status(400).json({ error: 'Booking not found.' });
+            if (row.status !== 'pending_payment') {
+                return res.status(400).json({ error: 'This invitation is no longer awaiting payment.' });
+            }
+            if (row.cancelled_at || row.archived_at) {
+                return res.status(400).json({ error: 'This session is no longer available.' });
+            }
+            if (session_id && parseInt(session_id, 10) !== row.session_id) {
+                return res.status(400).json({ error: 'Session does not match this booking.' });
+            }
+            amountValue = row.price;
+            description = `Hockey Training: ${row.title} — ${row.player_name}`;
+            experienceContext = buildPayPalExperienceContext(row.id);
+        } else {
+            if (!session_id) return res.status(400).json({ error: 'session_id is required.' });
+
+            const session = await dbGet(
+                `SELECT id, title, price, cancelled_at, archived_at FROM sessions WHERE id = ?`,
+                [session_id]
+            );
+            if (!session) return res.status(400).json({ error: 'Session not found.' });
+            if (session.cancelled_at || session.archived_at) {
+                return res.status(400).json({ error: 'This session is no longer available for registration.' });
+            }
+
+            let couponRow = null;
+            const normalizedCoupon = coupon_code ? String(coupon_code).toUpperCase().trim() : null;
+            if (normalizedCoupon) {
+                couponRow = await dbGet(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [normalizedCoupon]);
+                if (!couponRow) return res.status(400).json({ error: 'Invalid or expired coupon code.' });
+            }
+
+            amountValue = computeDiscountedPrice(session.price, couponRow);
+            description = session.title ? session.title.split('(')[0].trim() : 'Hockey Training Session';
+        }
+
+        if (amountValue <= 0) {
+            return res.status(400).json({ error: 'No payment is required for this registration.' });
+        }
+
+        const orderData = await createPayPalCheckoutOrder({ amountValue, description, experienceContext });
+        res.json({ id: orderData.id });
+    } catch (err) {
+        console.error('[PAYPAL CREATE-ORDER ERROR]', err.message);
+        res.status(500).json({ error: err.message || 'Unable to start PayPal checkout.' });
+    }
+});
+
 app.post('/api/admin/site-settings', verifyAdminToken, async (req, res) => {
     const { paypal_checkout_enabled, banner_enabled, banner_message } = req.body;
     try {
@@ -903,17 +1046,14 @@ app.post('/api/book', async (req, res) => {
 
         if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE' && paypal_order_id !== 'WAIVED_FREE') {
             try {
-                const accessToken = await getPayPalAccessToken();
-                const paypalHost = process.env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
-                
-                const verifyResponse = await fetch(`${paypalHost}/v2/checkout/orders/${paypal_order_id}`, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
-                });
+                const verifyResponse = await paypalApiFetch(`/v2/checkout/orders/${paypal_order_id}`, { method: 'GET' });
                 const orderDetails = await verifyResponse.json();
 
-                if (orderDetails.status !== 'COMPLETED') return res.status(400).json({ error: "Payment verification checks dropped. Roster spot rejected." });
+                if (!verifyResponse.ok || orderDetails.status !== 'COMPLETED') {
+                    return res.status(400).json({ error: "Payment verification checks dropped. Roster spot rejected." });
+                }
             } catch (error) {
+                console.error('[PAYPAL VERIFY ERROR]', error.message);
                 return res.status(500).json({ error: "Unable to complete security processing with merchant gateway." });
             }
         }
@@ -1943,27 +2083,11 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
 
             if (canPrebuildPayPalOrder) {
                 try {
-                    const accessToken = await getPayPalAccessToken();
-                    const paypalHost = getPayPalHost();
-
-                    const orderRes = await fetch(`${paypalHost}/v2/checkout/orders`, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            intent: 'CAPTURE',
-                            purchase_units: [{
-                                amount: { currency_code: 'USD', value: nextPlayer.price.toFixed(2) },
-                                description: `Hockey Training: ${nextPlayer.title} — ${nextPlayer.player_name}`
-                            }],
-                            payment_source: {
-                                paypal: {
-                                    experience_context: buildPayPalExperienceContext(nextPlayer.id)
-                                }
-                            }
-                        })
+                    const orderData = await createPayPalCheckoutOrder({
+                        amountValue: nextPlayer.price,
+                        description: `Hockey Training: ${nextPlayer.title} — ${nextPlayer.player_name}`,
+                        experienceContext: buildPayPalExperienceContext(nextPlayer.id)
                     });
-
-                    const orderData = await orderRes.json();
 
                     // Extract the payer-approval deep link from PayPal's HATEOAS links array
                     const approveLink = orderData?.links?.find(l => l.rel === 'approve');

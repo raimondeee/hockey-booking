@@ -229,6 +229,21 @@
         }
     }
 
+    function requestPayPalOrder(payload) {
+        return fetch('/api/paypal/create-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok || data.error || !data.id) {
+                throw new Error(data.error || 'Unable to start PayPal checkout.');
+            }
+            return data.id;
+        });
+    }
+
     function initializePaypalButtons() {
         if (!window.paypal) return;
         paypal.Buttons({
@@ -239,21 +254,10 @@
             onClick: function() {
                 togglePaypalState();
             },
-            createOrder: function(data, actions) {
-                return actions.order.create({
-                    purchase_units: [{
-                        amount: { currency_code: 'USD', value: targetRecordData.price.toString() },
-                        description: targetRecordData.title || 'Hockey Training Session'
-                    }],
-                    payment_source: {
-                        paypal: {
-                            experience_context: {
-                                shipping_preference: 'NO_SHIPPING',
-                                brand_name: 'Ben Stadey Hockey Training',
-                                user_action: 'PAY_NOW'
-                            }
-                        }
-                    }
+            createOrder: function() {
+                return requestPayPalOrder({
+                    session_id: targetRecordData.session_id,
+                    booking_id: targetRecordData.booking_id
                 });
             },
             onApprove: function(data, actions) {

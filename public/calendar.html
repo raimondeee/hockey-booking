@@ -1714,6 +1714,21 @@
             });
     }
 
+    function requestPayPalOrder(payload) {
+        return fetch('/api/paypal/create-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok || data.error || !data.id) {
+                throw new Error(data.error || 'Unable to start PayPal checkout.');
+            }
+            return data.id;
+        });
+    }
+
     function initializePayPalButtons() {
         if (!window.paypal) return;
         
@@ -1722,22 +1737,10 @@
         paypal.Buttons({
             onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
             onClick: function() { validateForm(); },
-            createOrder: function(data, actions) {
-                const sessionLabel = selectedEvent ? selectedEvent.title.split('(')[0].trim() : 'Hockey Training Session';
-                return actions.order.create({
-                    purchase_units: [{
-                        amount: { currency_code: 'USD', value: currentSessionPrice.toString() },
-                        description: sessionLabel
-                    }],
-                    payment_source: {
-                        paypal: {
-                            experience_context: {
-                                shipping_preference: 'NO_SHIPPING',
-                                brand_name: 'Ben Stadey Hockey Training',
-                                user_action: 'PAY_NOW'
-                            }
-                        }
-                    }
+            createOrder: function() {
+                return requestPayPalOrder({
+                    session_id: selectedEvent.id,
+                    coupon_code: verifiedCouponCode
                 });
             },
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
