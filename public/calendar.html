@@ -1077,6 +1077,36 @@
     };
 
     const VALID_EVENT_COLORS = ['blue', 'red', 'green'];
+    const SAVED_REGISTRATION_KEY = 'bsh_saved_registration_details';
+
+    function loadSavedRegistrationDetails() {
+        try {
+            const raw = localStorage.getItem(SAVED_REGISTRATION_KEY);
+            if (!raw) return { parentName: '', parentEmail: '', playerName: '' };
+            const parsed = JSON.parse(raw);
+            return {
+                parentName: String(parsed.parentName || '').trim(),
+                parentEmail: String(parsed.parentEmail || '').trim(),
+                playerName: String(parsed.playerName || '').trim()
+            };
+        } catch (e) {
+            return { parentName: '', parentEmail: '', playerName: '' };
+        }
+    }
+
+    function saveRegistrationDetails({ parentName, parentEmail, playerName }) {
+        const details = {
+            parentName: String(parentName || '').trim(),
+            parentEmail: String(parentEmail || '').trim(),
+            playerName: String(playerName || '').trim()
+        };
+        if (!details.parentName || !details.parentEmail || !details.playerName) return;
+        try {
+            localStorage.setItem(SAVED_REGISTRATION_KEY, JSON.stringify(details));
+        } catch (e) {
+            console.warn('Unable to save registration details for next booking:', e);
+        }
+    }
 
     function getDefaultCapacityForType(eventType) {
         if (eventType === 'small' || eventType === 'private') return 5;
@@ -1539,9 +1569,10 @@
             }
         }
 
-        document.getElementById('parentName').value = "";
-        document.getElementById('parentEmail').value = "";
-        document.getElementById('playerName').value = "";
+        const savedDetails = adminToken ? { parentName: '', parentEmail: '', playerName: '' } : loadSavedRegistrationDetails();
+        document.getElementById('parentName').value = savedDetails.parentName;
+        document.getElementById('parentEmail').value = savedDetails.parentEmail;
+        document.getElementById('playerName').value = savedDetails.playerName;
         document.getElementById('waiverCheckbox').checked = false;
         document.getElementById('couponCodeInput').value = "";
         document.getElementById('couponFeedback').innerText = "";
@@ -1815,6 +1846,7 @@
                 alert(data.error);
                 return;
             }
+            saveRegistrationDetails(payload);
             if (data.status === 'active') {
                 closeAllModals();
                 alert('Spot confirmed!');
