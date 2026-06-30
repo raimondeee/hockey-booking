@@ -1714,6 +1714,42 @@
             });
     }
 
+    function buildPaymentErrorMetadata(err) {
+        const props = selectedEvent ? (selectedEvent.extendedProps || {}) : {};
+        return {
+            error_string: err.toString(),
+            location: window.location.href,
+            flow: 'calendar',
+            session_id: selectedEvent ? selectedEvent.id : null,
+            session_title: selectedEvent
+                ? selectedEvent.title.split('(')[0].trim().replace(/^🔒\s*/, '')
+                : null,
+            session_start: selectedEvent
+                ? (selectedEvent.startStr || (selectedEvent.start ? selectedEvent.start.toISOString() : null))
+                : null,
+            session_end: selectedEvent
+                ? (selectedEvent.endStr || (selectedEvent.end ? selectedEvent.end.toISOString() : null))
+                : null,
+            session_location: props.location || null,
+            session_price: currentSessionPrice,
+            player_name: document.getElementById('playerName').value.trim(),
+            parent_name: document.getElementById('parentName').value.trim(),
+            parent_email: document.getElementById('parentEmail').value.trim()
+        };
+    }
+
+    function reportPaymentError(err, eventType, message) {
+        return fetch('/api/errors/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_type: eventType,
+                message: message,
+                metadata: buildPaymentErrorMetadata(err)
+            })
+        }).catch(telemetryErr => console.warn('Log pipeline unreachable:', telemetryErr));
+    }
+
     function requestPayPalOrder(payload) {
         return fetch('/api/paypal/create-order', {
             method: 'POST',
@@ -1746,16 +1782,12 @@
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
             onError: function(err) {
                 console.error("PayPal Smart Button Exception Matrix:", err);
-                
-                fetch('/api/errors/report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        event_type: 'PAYPAL_CHECKOUT_BLOCK',
-                        message: `Checkout dropped for event "${selectedEvent ? selectedEvent.title : 'Unknown'}"`,
-                        metadata: { error_string: err.toString(), location: window.location.href }
-                    })
-                }).catch(telemetryErr => console.warn("Log pipeline unreachable:", telemetryErr));
+
+                reportPaymentError(
+                    err,
+                    'PAYPAL_CHECKOUT_BLOCK',
+                    `Checkout dropped for event "${selectedEvent ? selectedEvent.title : 'Unknown'}"`
+                );
 
                 alert("⚠️ Registration Payment Gateway Temporarily Offline:\n\nWe encountered an issue with the payment processor engine. Coach Ben has been notified automatically. Your roster spot has not been altered—please try checking out again shortly!");
             }

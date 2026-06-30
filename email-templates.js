@@ -539,6 +539,108 @@ IMPORTANT: This invitation expires in 24 hours. If payment is not completed in t
     };
 }
 
+function buildPaymentErrorAlertEmail({
+    playerName,
+    parentName,
+    parentEmail,
+    sessionTitle,
+    sessionWhen,
+    locationName,
+    locationAddress,
+    sessionPrice,
+    errorString,
+    flow,
+    sessionPageUrl
+}) {
+    const player = playerName || 'Unknown player';
+    const parent = parentName || 'Unknown parent';
+    const email = parentEmail || 'Not provided';
+    const title = sessionTitle || 'Unknown session';
+    const priceLine = sessionPrice != null && sessionPrice !== ''
+        ? `<p style="margin:0 0 8px 0;"><strong>Amount due:</strong> $${escapeHtml(Number(sessionPrice).toFixed(2))}</p>`
+        : '';
+    const priceText = sessionPrice != null && sessionPrice !== ''
+        ? `\nAmount due: $${Number(sessionPrice).toFixed(2)}`
+        : '';
+
+    const isClaimSpot = flow === 'claim_spot';
+    const nextStepsText = isClaimSpot
+        ? `This player was invited from the waitlist but PayPal checkout failed before payment went through.
+
+1. Contact ${parent} at ${email} to arrange payment (Venmo, check, cash, etc.).
+2. Log in to Coach Portal and open this session on the calendar.
+3. Find ${player} on the waitlist (they should show as pending payment).
+4. Once payment is received, click "Confirm paid → Active" to move them to the roster.`
+        : `This registration did not complete — no roster spot was created yet.
+
+1. Contact ${parent} at ${email} to arrange payment (Venmo, check, cash, etc.).
+2. Ask them to register for the session via the waitlist if online checkout is still down.
+3. Log in to Coach Portal and open this session on the calendar.
+4. Once payment is received, find ${player} on the waitlist and click "Confirm paid → Active" to confirm their spot.`;
+
+    const sessionBox = buildSessionDetailsBoxHtml({
+        sessionTitle: title,
+        sessionWhen,
+        locationName,
+        locationAddress,
+        extraLinesHtml: priceLine
+    });
+
+    const errorBox = errorString
+        ? buildWarningBoxHtml(`Technical error: ${errorString}`)
+        : '';
+
+    const sessionLink = sessionPageUrl
+        ? buildPrimaryButtonHtml('Open session in Coach Portal', sessionPageUrl)
+        : '';
+
+    const bodyHtml = [
+        buildIntroMessageHtml('A parent tried to complete payment on <strong>benstadeyhockey.com</strong> but checkout failed.'),
+        sessionBox,
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9f9f9;border-left:4px solid #dc3545;margin:0 0 20px 0;">
+          <tr>
+            <td style="padding:16px;">
+              <h2 style="margin:0 0 12px 0;font-size:16px;color:#dc3545;">Registration attempt</h2>
+              <p style="margin:0 0 8px 0;"><strong>Player:</strong> ${escapeHtml(player)}</p>
+              <p style="margin:0 0 8px 0;"><strong>Parent:</strong> ${escapeHtml(parent)}</p>
+              <p style="margin:0;"><strong>Parent email:</strong> <a href="mailto:${escapeHtml(email)}" style="color:#0070ba;">${escapeHtml(email)}</a></p>
+            </td>
+          </tr>
+        </table>`,
+        errorBox,
+        buildWarningBoxHtml(`What to do next:\n\n${nextStepsText}`),
+        sessionLink
+    ].join('');
+
+    const bodyText = [
+        'A parent tried to complete payment on benstadeyhockey.com but checkout failed.',
+        '',
+        buildSessionDetailsText(title, sessionWhen, locationName, locationAddress) + priceText,
+        '',
+        'Registration attempt:',
+        `Player: ${player}`,
+        `Parent: ${parent}`,
+        `Parent email: ${email}`,
+        errorString ? `\nTechnical error: ${errorString}` : '',
+        '',
+        'What to do next:',
+        nextStepsText,
+        sessionPageUrl ? `\nOpen session: ${sessionPageUrl}` : ''
+    ].join('\n');
+
+    return {
+        subject: `Payment checkout failed — ${player} / ${title}`,
+        text: buildBrandedEmailText(bodyText, 'Automated payment error alert from Ben Stadey Hockey Training.', DEFAULT_CONTACT_EMAIL),
+        html: buildBrandedEmailHtml({
+            preheader: `Checkout failed for ${player} — ${title}`,
+            headerTitle: 'Payment Checkout Failed',
+            bodyHtml,
+            footerNote: 'Automated payment error alert from Ben Stadey Hockey Training.',
+            contactEmail: DEFAULT_CONTACT_EMAIL
+        })
+    };
+}
+
 module.exports = {
     buildBookingConfirmationHtml,
     buildBookingConfirmationText,
@@ -548,5 +650,6 @@ module.exports = {
     buildMovedToWaitlistEmail,
     buildRemovedFromSessionEmail,
     buildRosterOpeningEmail,
+    buildPaymentErrorAlertEmail,
     formatSessionWhenPT
 };

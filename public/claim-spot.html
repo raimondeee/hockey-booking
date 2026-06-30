@@ -229,6 +229,35 @@
         }
     }
 
+    function buildPaymentErrorMetadata(err) {
+        return {
+            error_string: err.toString(),
+            location: window.location.href,
+            flow: 'claim_spot',
+            session_id: targetRecordData ? targetRecordData.session_id : null,
+            session_title: targetRecordData ? targetRecordData.title : null,
+            session_start: targetRecordData ? targetRecordData.start_time : null,
+            session_location: targetRecordData ? targetRecordData.location : null,
+            session_price: targetRecordData ? targetRecordData.price : null,
+            booking_id: targetRecordData ? targetRecordData.booking_id : null,
+            player_name: targetRecordData ? targetRecordData.player_name : null,
+            parent_name: targetRecordData ? targetRecordData.parent_name : null,
+            parent_email: targetRecordData ? targetRecordData.parent_email : null
+        };
+    }
+
+    function reportPaymentError(err, eventType, message) {
+        return fetch('/api/errors/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                event_type: eventType,
+                message: message,
+                metadata: buildPaymentErrorMetadata(err)
+            })
+        }).catch(telemetryErr => console.warn('Log pipeline unreachable:', telemetryErr));
+    }
+
     function requestPayPalOrder(payload) {
         return fetch('/api/paypal/create-order', {
             method: 'POST',
@@ -268,17 +297,12 @@
             // UPDATED ERROR INTERCEPTION HOOK FOR TELEMETRY PIPELINE:
             onError: function(err) {
                 console.error("PayPal Smart Button Exception Matrix:", err);
-                
-                // Transparently beam the failure telemetry straight to Ben's server database
-                fetch('/api/errors/report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        event_type: 'PAYPAL_CLAIM_SPOT_BLOCK',
-                        message: `Checkout dropped for waitlisted player claiming hold spot in session "${targetRecordData ? targetRecordData.title : 'Unknown'}"`,
-                        metadata: { error_string: err.toString(), location: window.location.href }
-                    })
-                }).catch(telemetryErr => console.warn("Log pipeline unreachable:", telemetryErr));
+
+                reportPaymentError(
+                    err,
+                    'PAYPAL_CLAIM_SPOT_BLOCK',
+                    `Checkout dropped for waitlisted player claiming hold spot in session "${targetRecordData ? targetRecordData.title : 'Unknown'}"`
+                );
 
                 alert("⚠️ Registration Payment Gateway Temporarily Offline:\n\nWe encountered an issue with the payment processor engine. Coach Ben has been notified automatically. Your roster spot has not been altered—please try checking out again shortly!");
             }

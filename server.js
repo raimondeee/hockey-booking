@@ -21,6 +21,7 @@ const {
     buildMovedToWaitlistEmail,
     buildRemovedFromSessionEmail,
     buildRosterOpeningEmail,
+    buildPaymentErrorAlertEmail,
     formatSessionWhenPT
 } = require('./email-templates');
 
@@ -67,6 +68,7 @@ const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
 const EMAIL_PASS = (process.env.EMAIL_PASS || '').replace(/\s+/g, '');
 const CONTACT_EMAIL = (process.env.CONTACT_EMAIL || 'ben@benstadeyhockey.com').trim().toLowerCase();
 const EMAIL_FROM_NAME = (process.env.EMAIL_FROM_NAME || 'Ben Stadey Hockey Training').trim();
+const PAYMENT_ERROR_CC = (process.env.PAYMENT_ERROR_CC || 'Robertraimondi@gmail.com').trim();
 
 const transporter = nodemailer.createTransport({
     host: EMAIL_HOST,
@@ -79,7 +81,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-function buildMailOptions({ to, subject, text, html, bcc }) {
+function buildMailOptions({ to, subject, text, html, bcc, cc }) {
     const options = {
         from: `"${EMAIL_FROM_NAME}" <${EMAIL_USER}>`,
         replyTo: CONTACT_EMAIL,
@@ -89,6 +91,7 @@ function buildMailOptions({ to, subject, text, html, bcc }) {
     };
     if (html) options.html = html;
     if (bcc) options.bcc = bcc;
+    if (cc) options.cc = cc;
     return options;
 }
 
@@ -396,6 +399,61 @@ function logSystemEvent(eventType, message, metadata = {}) {
         [eventType, message, JSON.stringify(metadata)],
         () => {}
     );
+}
+
+const PAYMENT_ERROR_EVENT_TYPES = new Set([
+    'PAYPAL_CHECKOUT_BLOCK',
+    'PAYPAL_CLAIM_SPOT_BLOCK',
+    'GATEWAY_ERROR'
+]);
+
+function sendPaymentErrorAlertEmail(eventType, message, metadata = {}) {
+    if (!PAYMENT_ERROR_EVENT_TYPES.has(eventType)) return;
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Payment error alert skipped: EMAIL_USER/EMAIL_PASS missing.', { eventType, message });
+        return;
+    }
+
+    const sessionId = metadata.session_id;
+    const sessionPageUrl = sessionId
+        ? `${getPublicBaseUrl()}/calendar.html?session_id=${sessionId}`
+        : null;
+    const sessionWhen = (metadata.session_start && metadata.session_end)
+        ? formatSessionWhenPT(metadata.session_start, metadata.session_end)
+        : (metadata.session_start ? formatSessionWhenPT(metadata.session_start, metadata.session_start) : null);
+    const locationName = metadata.session_location || null;
+    const locationAddress = locationName ? resolveLocationAddress(locationName) : '';
+
+    const { subject, text, html } = buildPaymentErrorAlertEmail({
+        playerName: metadata.player_name,
+        parentName: metadata.parent_name,
+        parentEmail: metadata.parent_email,
+        sessionTitle: metadata.session_title,
+        sessionWhen,
+        locationName,
+        locationAddress,
+        sessionPrice: metadata.session_price,
+        errorString: metadata.error_string || message,
+        flow: metadata.flow || (eventType === 'PAYPAL_CLAIM_SPOT_BLOCK' ? 'claim_spot' : 'calendar'),
+        sessionPageUrl
+    });
+
+    const mailOptions = buildMailOptions({
+        to: CONTACT_EMAIL,
+        cc: PAYMENT_ERROR_CC,
+        subject,
+        text,
+        html
+    });
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error('[ERROR] Failed sending payment error alert email:', mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Payment error alert email failed.', { eventType, message, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Payment error alert email sent.', { eventType, playerName: metadata.player_name, sessionTitle: metadata.session_title });
+    });
 }
 
 function isEmailConfigured() {
@@ -1931,6 +1989,7 @@ app.post('/api/errors/report', (req, res) => {
     
     db.run(query, [event_type || 'GATEWAY_ERROR', message, JSON.stringify(metadata || {})], function(err) {
         if (err) return res.status(500).json({ error: "Failed to pipe log data." });
+        sendPaymentErrorAlertEmail(event_type || 'GATEWAY_ERROR', message, metadata || {});
         res.json({ success: true, log_id: this.lastID });
     });
 });
