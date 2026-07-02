@@ -157,6 +157,7 @@
     <div class="dashboard-row" style="grid-template-columns: 1fr;">
         <div class="panel-box">
             <h3 class="panel-header">📡 Real-Time Gateway Diagnostics & Incident Log Feed</h3>
+            <p style="font-size: 12px; color: #9aa0a6; margin: -6px 0 10px 0;">All timestamps shown in Pacific Time (PT).</p>
             <div style="max-height: 320px; overflow-y: auto; border: 1px solid #2c313c; border-radius: 4px;">
                 <table id="systemLogsTable">
                     <thead>
@@ -190,6 +191,7 @@
 
 </div>
 
+<script src="/date-pt.js"></script>
 <script src="/app-dialog.js"></script>
 <script>
     let adminToken = localStorage.getItem('coach_admin_token');
@@ -300,8 +302,7 @@
             
             let html = '';
             data.forEach(row => {
-                const rawDate = new Date(row.created_at);
-                const standardTime = rawDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const standardTime = formatDateTimePT(row.created_at, { includeWeekday: true });
                 
                 // Format plain text trace properties neatly
                 let formattedMeta = '';
@@ -351,16 +352,16 @@
 
             root.innerHTML = data.sessions.map((session, idx) => {
                 const cancelledWhen = session.cancelled_at
-                    ? new Date(session.cancelled_at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ? formatDateTimePT(session.cancelled_at, { includeSeconds: false })
                     : '—';
                 const archivedWhen = session.archived_at
-                    ? new Date(session.archived_at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ? formatDateTimePT(session.archived_at, { includeSeconds: false })
                     : '—';
 
                 const bookingRows = session.bookings.length
                     ? session.bookings.map(b => {
                         const refundCell = b.status === 'refunded'
-                            ? `<span style="color:#28a745; font-weight:bold;">$${parseFloat(b.refund_amount || session.price).toFixed(2)}</span>${b.refunded_at ? `<br><small style="color:#9aa0a6;">${new Date(b.refunded_at).toLocaleString()}</small>` : ''}${b.paypal_refund_id ? `<br><small style="font-family:monospace; color:#6c757d;">${b.paypal_refund_id}</small>` : ''}`
+                            ? `<span style="color:#28a745; font-weight:bold;">$${parseFloat(b.refund_amount || session.price).toFixed(2)}</span>${b.refunded_at ? `<br><small style="color:#9aa0a6;">${formatDateTimePT(b.refunded_at, { includeSeconds: false })}</small>` : ''}${b.paypal_refund_id ? `<br><small style="font-family:monospace; color:#6c757d;">${b.paypal_refund_id}</small>` : ''}`
                             : '<span style="color:#9aa0a6;">—</span>';
                         return `<tr>
                             <td>${b.player_name}<br><small style="color:#9aa0a6;">${b.parent_email}</small></td>

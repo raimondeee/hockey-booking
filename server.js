@@ -22,7 +22,8 @@ const {
     buildRemovedFromSessionEmail,
     buildRosterOpeningEmail,
     buildPaymentErrorAlertEmail,
-    formatSessionWhenPT
+    formatSessionWhenPT,
+    formatDateTimePT
 } = require('./email-templates');
 
 const app = express();
@@ -423,6 +424,7 @@ function sendPaymentErrorAlertEmail(eventType, message, metadata = {}) {
         : (metadata.session_start ? formatSessionWhenPT(metadata.session_start, metadata.session_start) : null);
     const locationName = metadata.session_location || null;
     const locationAddress = locationName ? resolveLocationAddress(locationName) : '';
+    const reportedAt = formatDateTimePT(new Date(), { includeWeekday: true });
 
     const { subject, text, html } = buildPaymentErrorAlertEmail({
         playerName: metadata.player_name,
@@ -435,7 +437,8 @@ function sendPaymentErrorAlertEmail(eventType, message, metadata = {}) {
         sessionPrice: metadata.session_price,
         errorString: metadata.error_string || message,
         flow: metadata.flow || (eventType === 'PAYPAL_CLAIM_SPOT_BLOCK' ? 'claim_spot' : 'calendar'),
-        sessionPageUrl
+        sessionPageUrl,
+        reportedAt
     });
 
     const mailOptions = buildMailOptions({
@@ -452,7 +455,12 @@ function sendPaymentErrorAlertEmail(eventType, message, metadata = {}) {
             logSystemEvent('EMAIL_FAILED', 'Payment error alert email failed.', { eventType, message, error: mailErr.message });
             return;
         }
-        logSystemEvent('EMAIL_SENT', 'Payment error alert email sent.', { eventType, playerName: metadata.player_name, sessionTitle: metadata.session_title });
+        logSystemEvent('EMAIL_SENT', 'Payment error alert email sent.', {
+            eventType,
+            playerName: metadata.player_name,
+            sessionTitle: metadata.session_title,
+            reportedAt
+        });
     });
 }
 

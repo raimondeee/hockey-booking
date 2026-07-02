@@ -70,6 +70,36 @@ function formatTimePT(isoString) {
     });
 }
 
+function parseDbUtcTimestamp(value) {
+    if (!value) return null;
+    const s = String(value).trim();
+    if (!s) return null;
+    if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
+    const normalized = s.includes('T') ? s : s.replace(' ', 'T');
+    return new Date(`${normalized}Z`);
+}
+
+function formatDateTimePT(value, options = {}) {
+    const { includeSeconds = true, includeWeekday = false } = options;
+    const d = value instanceof Date ? value : parseDbUtcTimestamp(value);
+    if (!d || Number.isNaN(d.getTime())) return '';
+
+    const formatOptions = {
+        timeZone: CALENDAR_TZ,
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short'
+    };
+    if (includeSeconds) formatOptions.second = '2-digit';
+    if (includeWeekday) formatOptions.weekday = 'short';
+
+    return d.toLocaleString('en-US', formatOptions);
+}
+
 function formatSessionWhenPT(startTime, endTime) {
     const startWall = parseWallClockParts(startTime);
     if (startWall) {
@@ -550,7 +580,8 @@ function buildPaymentErrorAlertEmail({
     sessionPrice,
     errorString,
     flow,
-    sessionPageUrl
+    sessionPageUrl,
+    reportedAt
 }) {
     const player = playerName || 'Unknown player';
     const parent = parentName || 'Unknown parent';
@@ -594,8 +625,14 @@ function buildPaymentErrorAlertEmail({
         ? buildPrimaryButtonHtml('Open session in Coach Portal', sessionPageUrl)
         : '';
 
+    const reportedLine = reportedAt
+        ? `<p style="margin:0 0 16px 0;font-size:13px;color:#666;"><strong>Reported:</strong> ${escapeHtml(reportedAt)}</p>`
+        : '';
+    const reportedText = reportedAt ? `Reported: ${reportedAt}\n\n` : '';
+
     const bodyHtml = [
         buildIntroMessageHtml('A parent tried to complete payment on <strong>benstadeyhockey.com</strong> but checkout failed.'),
+        reportedLine,
         sessionBox,
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9f9f9;border-left:4px solid #dc3545;margin:0 0 20px 0;">
           <tr>
@@ -615,6 +652,7 @@ function buildPaymentErrorAlertEmail({
     const bodyText = [
         'A parent tried to complete payment on benstadeyhockey.com but checkout failed.',
         '',
+        reportedText,
         buildSessionDetailsText(title, sessionWhen, locationName, locationAddress) + priceText,
         '',
         'Registration attempt:',
@@ -651,5 +689,6 @@ module.exports = {
     buildRemovedFromSessionEmail,
     buildRosterOpeningEmail,
     buildPaymentErrorAlertEmail,
-    formatSessionWhenPT
+    formatSessionWhenPT,
+    formatDateTimePT
 };
