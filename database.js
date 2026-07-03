@@ -80,6 +80,8 @@ db.serialize(() => {
     // SAFE LIVE DATABASE MIGRATIONS
     // ==========================================
     db.run(`ALTER TABLE sessions ADD COLUMN custom_capacity INTEGER DEFAULT NULL`, (err) => {});
+    db.run(`ALTER TABLE sessions ADD COLUMN event_type TEXT DEFAULT 'large'`, (err) => {});
+    db.run(`ALTER TABLE sessions ADD COLUMN access_code TEXT DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN queue_position INTEGER DEFAULT NULL`, (err) => {});
     db.run(`ALTER TABLE bookings ADD COLUMN invitation_sent_at TEXT DEFAULT NULL`, (err) => {});
     

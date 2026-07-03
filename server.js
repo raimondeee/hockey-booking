@@ -22,6 +22,7 @@ const {
     buildRemovedFromSessionEmail,
     buildRosterOpeningEmail,
     buildPaymentErrorAlertEmail,
+    buildBatchRegistrationEmail,
     formatSessionWhenPT,
     formatDateTimePT
 } = require('./email-templates');
@@ -53,6 +54,8 @@ function getDefaultWaitlistCapacity(eventType) {
     if (eventType === 'small' || eventType === 'private') return 3;
     return 15;
 }
+
+const OFFLINE_PAYMENT_WAITLIST_CAP = 40;
 
 // Secure Production Profile Configurations
 const ADMIN_USERNAME = process.env.ADMIN_USER || "coach";
@@ -143,6 +146,20 @@ function runExpiredReservationsSweep(callback) {
     });
 }
 
+function isSimulatePayPalCheckoutEnabled() {
+    if (process.env.SIMULATE_PAYPAL_CHECKOUT !== '1') return false;
+    if (process.env.NODE_ENV === 'production') return false;
+    return true;
+}
+
+function isSimulatedPayPalOrderId(orderId) {
+    return typeof orderId === 'string' && orderId.startsWith('SIMULATED_ORDER_');
+}
+
+function generateSimulatedPayPalOrderId() {
+    return `SIMULATED_ORDER_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function getPayPalHost() {
     return process.env.PAYPAL_MODE === 'live'
         ? 'https://api-m.paypal.com'
@@ -197,10 +214,255 @@ function computeDiscountedPrice(basePrice, couponRow) {
     return Math.max(0, price - discount);
 }
 
+function normalizePlayerNames(player_name, player_names) {
+    if (Array.isArray(player_names) && player_names.length) {
+        const names = player_names.map((n) => String(n || '').trim()).filter(Boolean);
+        if (names.length) return names;
+    }
+    const single = player_name ? String(player_name).trim() : '';
+    return single ? [single] : [];
+}
+
+function dbRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function onRun(err) {
+            if (err) reject(err);
+            else resolve({ lastID: this.lastID, changes: this.changes });
+        });
+    });
+}
+
 function dbGet(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
     });
+}
+
+async function verifyCompletedPayPalOrder(paypal_order_id, expectedTotal = null) {
+    if (!paypal_order_id || paypal_order_id === 'WAITLIST_FREE' || paypal_order_id === 'WAIVED_FREE') {
+        return { capturedAmount: 0 };
+    }
+
+    if (isSimulatedPayPalOrderId(paypal_order_id)) {
+        if (!isSimulatePayPalCheckoutEnabled()) {
+            const err = new Error('Simulated payment orders are not accepted.');
+            err.code = 'PAYMENT_NOT_COMPLETED';
+            throw err;
+        }
+        return { capturedAmount: expectedTotal != null ? expectedTotal : 0 };
+    }
+
+    const verifyResponse = await paypalApiFetch(`/v2/checkout/orders/${paypal_order_id}`, { method: 'GET' });
+    const orderDetails = await verifyResponse.json();
+    if (!verifyResponse.ok || orderDetails.status !== 'COMPLETED') {
+        const err = new Error('Payment verification checks dropped. Roster spot rejected.');
+        err.code = 'PAYMENT_NOT_COMPLETED';
+        throw err;
+    }
+
+    const unit = orderDetails.purchase_units && orderDetails.purchase_units[0];
+    const capturedAmount = unit && unit.amount && unit.amount.value
+        ? parseFloat(unit.amount.value)
+        : 0;
+
+    if (expectedTotal != null && Math.abs(capturedAmount - expectedTotal) > 0.02) {
+        const err = new Error('Payment amount does not match the registration total.');
+        err.code = 'PAYMENT_AMOUNT_MISMATCH';
+        throw err;
+    }
+
+    return { capturedAmount };
+}
+
+function getSessionCapacityLimits(session, siteSettings) {
+    let maxActive = getDefaultActiveCapacity(session.event_type, session.custom_capacity);
+    let maxWaitlist = getDefaultWaitlistCapacity(session.event_type);
+    if (!siteSettings.paypal_checkout_enabled) {
+        maxWaitlist = OFFLINE_PAYMENT_WAITLIST_CAP;
+    }
+    return { maxActive, maxWaitlist };
+}
+
+async function getSessionCounts(sessionId) {
+    return dbGet(
+        `SELECT
+            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') AS active,
+            (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status IN ('waitlist', 'pending_payment')) AS waitlist`,
+        [sessionId, sessionId]
+    );
+}
+
+function determineBookingStatus(counts, playerCount, siteSettings, maxActive, maxWaitlist) {
+    if (!siteSettings.paypal_checkout_enabled) {
+        if ((counts.waitlist + playerCount) > maxWaitlist) {
+            return {
+                error: `This training session waitlist is completely full (${maxWaitlist} players while online checkout is paused).`
+            };
+        }
+        return { status: 'waitlist', storedOrderId: 'WAITLIST_FREE' };
+    }
+
+    const activeSpotsLeft = maxActive - counts.active;
+    if (activeSpotsLeft >= playerCount) {
+        return { status: 'active' };
+    }
+
+    if ((counts.waitlist + playerCount) <= maxWaitlist) {
+        return { status: 'waitlist' };
+    }
+
+    return { error: 'This training session and its waitlist bounds are completely full.' };
+}
+
+async function getNextQueuePosition(sessionId) {
+    const row = await dbGet(
+        `SELECT COALESCE(MAX(queue_position), 0) AS max_queue
+         FROM bookings WHERE session_id = ? AND status IN ('waitlist', 'pending_payment')`,
+        [sessionId]
+    );
+    return (row?.max_queue || 0) + 1;
+}
+
+async function insertPlayerBookings({
+    sessionId,
+    playerNames,
+    parent_name,
+    cleanEmail,
+    storedOrderId,
+    couponRow,
+    status,
+    queuePositionStart
+}) {
+    const waiverTimestamp = new Date().toISOString();
+    const storedCouponCode = couponRow ? couponRow.code : null;
+    const bookings = [];
+    let queuePosition = queuePositionStart;
+
+    for (const player_name of playerNames) {
+        const queuePositionValue = status === 'waitlist' ? queuePosition++ : null;
+        const insertResult = await dbRun(
+            `INSERT INTO bookings (
+                session_id, player_name, parent_name, parent_email,
+                status, paypal_order_id, waiver_accepted, waiver_timestamp, queue_position, coupon_code
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+            [
+                sessionId, player_name, parent_name, cleanEmail,
+                status, storedOrderId, waiverTimestamp, queuePositionValue, storedCouponCode
+            ]
+        );
+        bookings.push({
+            booking_id: insertResult.lastID,
+            player_name,
+            status,
+            session_id: sessionId
+        });
+    }
+
+    return bookings;
+}
+
+async function processSessionRegistration({
+    session_id,
+    playerNames,
+    parent_name,
+    cleanEmail,
+    paypal_order_id,
+    couponRow,
+    siteSettings
+}) {
+    const session = await dbGet(
+        `SELECT id, title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at
+         FROM sessions WHERE id = ?`,
+        [session_id]
+    );
+    if (!session) {
+        const err = new Error('Target training event session matrix not found.');
+        err.code = 'SESSION_NOT_FOUND';
+        throw err;
+    }
+    if (session.cancelled_at || session.archived_at) {
+        const err = new Error('This session is no longer available for registration.');
+        err.code = 'SESSION_UNAVAILABLE';
+        throw err;
+    }
+
+    const { maxActive, maxWaitlist } = getSessionCapacityLimits(session, siteSettings);
+    const counts = await getSessionCounts(session_id);
+    const decision = determineBookingStatus(counts, playerNames.length, siteSettings, maxActive, maxWaitlist);
+    if (decision.error) {
+        const err = new Error(decision.error);
+        err.code = 'CAPACITY_FULL';
+        throw err;
+    }
+
+    let storedOrderId = paypal_order_id || 'WAITLIST_FREE';
+    if (decision.status === 'waitlist' && !siteSettings.paypal_checkout_enabled) {
+        storedOrderId = 'WAITLIST_FREE';
+    }
+
+    const queuePositionStart = decision.status === 'waitlist'
+        ? await getNextQueuePosition(session_id)
+        : null;
+
+    const unitPrice = computeDiscountedPrice(session.price, couponRow);
+    const bookings = await insertPlayerBookings({
+        sessionId: session_id,
+        playerNames,
+        parent_name,
+        cleanEmail,
+        storedOrderId,
+        couponRow,
+        status: decision.status,
+        queuePositionStart
+    });
+
+    const isPaid = storedOrderId
+        && storedOrderId !== 'WAITLIST_FREE'
+        && storedOrderId !== 'WAIVED_FREE';
+
+    return {
+        session,
+        bookings,
+        status: decision.status,
+        unitPrice,
+        totalAmount: unitPrice * playerNames.length,
+        amountPaid: isPaid ? unitPrice : 0
+    };
+}
+
+async function computeRegistrationOrderTotal(items, couponRow) {
+    let total = 0;
+    for (const item of items) {
+        const session = await dbGet(
+            `SELECT id, price, cancelled_at, archived_at FROM sessions WHERE id = ?`,
+            [item.session_id]
+        );
+        if (!session) {
+            const err = new Error('One or more sessions in your cart could not be found.');
+            err.code = 'SESSION_NOT_FOUND';
+            throw err;
+        }
+        if (session.cancelled_at || session.archived_at) {
+            const err = new Error('One or more sessions in your cart are no longer available.');
+            err.code = 'SESSION_UNAVAILABLE';
+            throw err;
+        }
+        const unitPrice = computeDiscountedPrice(session.price, couponRow);
+        total += unitPrice * item.player_names.length;
+    }
+    return total;
+}
+
+async function resolveCouponRow(coupon_code) {
+    const normalizedCouponCode = coupon_code ? String(coupon_code).toUpperCase().trim() : null;
+    if (!normalizedCouponCode) return null;
+    const couponRow = await dbGet(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [normalizedCouponCode]);
+    if (!couponRow) {
+        const err = new Error('Invalid or expired coupon code.');
+        err.code = 'INVALID_COUPON';
+        throw err;
+    }
+    return couponRow;
 }
 
 async function createPayPalCheckoutOrder({ amountValue, description, experienceContext }) {
@@ -241,8 +503,6 @@ async function createPayPalCheckoutOrder({ amountValue, description, experienceC
     }
     return orderData;
 }
-
-const OFFLINE_PAYMENT_WAITLIST_CAP = 40;
 
 const DEFAULT_SITE_SETTINGS = {
     paypal_checkout_enabled: '1',
@@ -303,7 +563,7 @@ function buildPayPalExperienceContext(bookingId) {
 function isRefundablePayPalOrder(paypalOrderId) {
     if (!paypalOrderId) return false;
     if (paypalOrderId === 'WAITLIST_FREE' || paypalOrderId === 'WAIVED_FREE' || paypalOrderId === 'OFFLINE_PAID') return false;
-    if (paypalOrderId.startsWith('REFUNDED:')) return false;
+    if (paypalOrderId.startsWith('REFUNDED:') || isSimulatedPayPalOrderId(paypalOrderId)) return false;
     return true;
 }
 
@@ -586,6 +846,47 @@ function sendBookingConfirmationEmail({
             return;
         }
         logSystemEvent('EMAIL_SENT', 'Booking confirmation email sent.', { parentEmail, playerName, sessionTitle, isWaitlist });
+    });
+}
+
+function sendBatchRegistrationEmail({
+    parentEmail,
+    parentName,
+    lineItems,
+    totalPaid,
+    checkoutPaused
+}) {
+    if (!parentEmail) {
+        logSystemEvent('EMAIL_SKIPPED', 'Batch registration email skipped: missing parent email.', { lineCount: lineItems?.length });
+        return;
+    }
+    if (!isEmailConfigured()) {
+        logSystemEvent('EMAIL_SKIPPED', 'Batch registration email skipped: EMAIL_USER/EMAIL_PASS missing.', { parentEmail });
+        return;
+    }
+
+    const email = buildBatchRegistrationEmail({
+        parentName,
+        lineItems,
+        totalPaid,
+        checkoutPaused,
+        contactEmail: CONTACT_EMAIL
+    });
+
+    const mailOptions = buildMailOptions({
+        to: parentEmail,
+        subject: email.subject,
+        text: email.text,
+        html: email.html
+    });
+
+    transporter.sendMail(mailOptions, (mailErr) => {
+        if (mailErr) {
+            console.error('[ERROR] Failed sending batch registration email:', mailErr.message);
+            logSystemEvent('EMAIL_FAILED', 'Batch registration email failed.', { parentEmail, error: mailErr.message });
+            return;
+        }
+        logSystemEvent('EMAIL_SENT', 'Batch registration email sent.', { parentEmail, lineCount: lineItems.length });
     });
 }
 
@@ -934,7 +1235,9 @@ app.get('/api/config/site', async (req, res) => {
             paypal_checkout_enabled: settings.paypal_checkout_enabled,
             banner_enabled: settings.banner_enabled,
             banner_message: settings.banner_message,
-            offline_waitlist_cap: settings.offline_waitlist_cap
+            offline_waitlist_cap: settings.offline_waitlist_cap,
+            simulate_checkout: isSimulatePayPalCheckoutEnabled(),
+            simulate_coach_login: isSimulatePayPalCheckoutEnabled()
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -946,19 +1249,22 @@ app.get('/api/config/paypal-client-id', async (req, res) => {
     try {
         const settings = await getSiteSettings();
         if (!settings.paypal_checkout_enabled) {
-            return res.json({ clientId: null, paypal_checkout_enabled: false });
+            return res.json({ clientId: null, paypal_checkout_enabled: false, simulate_checkout: false });
+        }
+        if (isSimulatePayPalCheckoutEnabled()) {
+            return res.json({ clientId: null, paypal_checkout_enabled: true, simulate_checkout: true });
         }
         if (!process.env.PAYPAL_CLIENT_ID) {
             return res.status(500).json({ error: "Merchant client token signature is unassigned on server profiles." });
         }
-        res.json({ clientId: process.env.PAYPAL_CLIENT_ID, paypal_checkout_enabled: true });
+        res.json({ clientId: process.env.PAYPAL_CLIENT_ID, paypal_checkout_enabled: true, simulate_checkout: false });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 app.post('/api/paypal/create-order', async (req, res) => {
-    const { session_id, booking_id, coupon_code } = req.body;
+    const { session_id, booking_id, coupon_code, player_count, cart_items } = req.body;
 
     try {
         const siteSettings = await getSiteSettings();
@@ -966,7 +1272,9 @@ app.post('/api/paypal/create-order', async (req, res) => {
             return res.status(503).json({ error: 'Online checkout is temporarily unavailable.' });
         }
 
-        assertPayPalCredentials();
+        if (!isSimulatePayPalCheckoutEnabled()) {
+            assertPayPalCredentials();
+        }
 
         let amountValue;
         let description;
@@ -993,6 +1301,31 @@ app.post('/api/paypal/create-order', async (req, res) => {
             amountValue = row.price;
             description = `Hockey Training: ${row.title} — ${row.player_name}`;
             experienceContext = buildPayPalExperienceContext(row.id);
+        } else if (Array.isArray(cart_items) && cart_items.length) {
+            const couponRow = await resolveCouponRow(coupon_code).catch((err) => {
+                if (err.code === 'INVALID_COUPON') return null;
+                throw err;
+            });
+            if (coupon_code && !couponRow) {
+                return res.status(400).json({ error: 'Invalid or expired coupon code.' });
+            }
+
+            const normalizedItems = [];
+            for (const rawItem of cart_items) {
+                const playerNames = normalizePlayerNames(null, rawItem.player_names);
+                if (!rawItem.session_id || !playerNames.length) {
+                    return res.status(400).json({ error: 'Each cart item must include a session and at least one player.' });
+                }
+                normalizedItems.push({
+                    session_id: parseInt(rawItem.session_id, 10),
+                    player_names: playerNames
+                });
+            }
+
+            amountValue = await computeRegistrationOrderTotal(normalizedItems, couponRow);
+            const sessionCount = normalizedItems.length;
+            const playerCount = normalizedItems.reduce((sum, item) => sum + item.player_names.length, 0);
+            description = `Hockey Training Cart (${sessionCount} session${sessionCount === 1 ? '' : 's'}, ${playerCount} player${playerCount === 1 ? '' : 's'})`;
         } else {
             if (!session_id) return res.status(400).json({ error: 'session_id is required.' });
 
@@ -1005,19 +1338,30 @@ app.post('/api/paypal/create-order', async (req, res) => {
                 return res.status(400).json({ error: 'This session is no longer available for registration.' });
             }
 
-            let couponRow = null;
-            const normalizedCoupon = coupon_code ? String(coupon_code).toUpperCase().trim() : null;
-            if (normalizedCoupon) {
-                couponRow = await dbGet(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [normalizedCoupon]);
-                if (!couponRow) return res.status(400).json({ error: 'Invalid or expired coupon code.' });
+            const couponRow = await resolveCouponRow(coupon_code).catch((err) => {
+                if (err.code === 'INVALID_COUPON') return null;
+                throw err;
+            });
+            if (coupon_code && !couponRow) {
+                return res.status(400).json({ error: 'Invalid or expired coupon code.' });
             }
 
-            amountValue = computeDiscountedPrice(session.price, couponRow);
+            const quantity = Math.max(1, parseInt(player_count, 10) || 1);
+            amountValue = computeDiscountedPrice(session.price, couponRow) * quantity;
             description = session.title ? session.title.split('(')[0].trim() : 'Hockey Training Session';
+            if (quantity > 1) {
+                description += ` (${quantity} players)`;
+            }
         }
 
         if (amountValue <= 0) {
             return res.status(400).json({ error: 'No payment is required for this registration.' });
+        }
+
+        if (isSimulatePayPalCheckoutEnabled()) {
+            const simulatedId = generateSimulatedPayPalOrderId();
+            console.log(`[SIMULATE] Created fake PayPal order ${simulatedId} for $${amountValue.toFixed(2)} — ${description}`);
+            return res.json({ id: simulatedId, simulated: true, amount: amountValue });
         }
 
         const orderData = await createPayPalCheckoutOrder({ amountValue, description, experienceContext });
@@ -1064,10 +1408,23 @@ app.post('/api/validate-coupon', (req, res) => {
 
 // 3. Public: Submit a registration (Enforces security blacklist interceptions, verifies PayPal, locks waivers)
 app.post('/api/book', async (req, res) => {
-    const { session_id, player_name, parent_email, parent_name, paypal_order_id, existing_booking_id, coupon_code } = req.body;
+    const {
+        session_id,
+        player_name,
+        player_names,
+        parent_email,
+        parent_name,
+        paypal_order_id,
+        existing_booking_id,
+        coupon_code
+    } = req.body;
     if (!parent_email) return res.status(400).json({ error: "Parent email pattern is required for mapping." });
 
     const cleanEmail = parent_email.toLowerCase().trim();
+    const names = normalizePlayerNames(player_name, player_names);
+    if (!existing_booking_id && !names.length) {
+        return res.status(400).json({ error: 'At least one player name is required.' });
+    }
 
     db.get(`SELECT email FROM banned_emails WHERE email = ?`, [cleanEmail], async (err, banRecord) => {
         if (err) return res.status(500).json({ error: "Internal security handshake check fault." });
@@ -1082,24 +1439,15 @@ app.post('/api/book', async (req, res) => {
 
         const checkoutPausedMessage = "Online checkout is temporarily unavailable. You have been added to the waitlist — Coach Ben will confirm your spot after payment is arranged offline.";
 
-        const normalizedCouponCode = coupon_code ? String(coupon_code).toUpperCase().trim() : null;
-
-        const resolveCouponForBooking = (callback) => {
-            if (!normalizedCouponCode) return callback(null, null);
-            db.get(`SELECT * FROM coupons WHERE code = ? AND active = 1`, [normalizedCouponCode], (couponErr, couponRow) => {
-                if (couponErr) return callback(couponErr);
-                if (!couponRow) return callback(new Error('INVALID_COUPON'));
-                callback(null, couponRow);
-            });
-        };
-
-        resolveCouponForBooking(async (couponErr, couponRow) => {
-            if (couponErr) {
-                if (couponErr.message === 'INVALID_COUPON') {
-                    return res.status(400).json({ error: 'Invalid or expired coupon code.' });
-                }
-                return res.status(500).json({ error: couponErr.message });
+        let couponRow = null;
+        try {
+            couponRow = await resolveCouponRow(coupon_code);
+        } catch (couponErr) {
+            if (couponErr.code === 'INVALID_COUPON') {
+                return res.status(400).json({ error: 'Invalid or expired coupon code.' });
             }
+            return res.status(500).json({ error: couponErr.message });
+        }
 
         if (!siteSettings.paypal_checkout_enabled) {
             const isPaidPayPalOrder = paypal_order_id
@@ -1110,34 +1458,34 @@ app.post('/api/book', async (req, res) => {
             }
         }
 
-        if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE' && paypal_order_id !== 'WAIVED_FREE') {
-            try {
-                const verifyResponse = await paypalApiFetch(`/v2/checkout/orders/${paypal_order_id}`, { method: 'GET' });
-                const orderDetails = await verifyResponse.json();
-
-                if (!verifyResponse.ok || orderDetails.status !== 'COMPLETED') {
-                    return res.status(400).json({ error: "Payment verification checks dropped. Roster spot rejected." });
+        let expectedTotal = null;
+        try {
+            if (paypal_order_id && paypal_order_id !== 'WAITLIST_FREE' && paypal_order_id !== 'WAIVED_FREE') {
+                if (existing_booking_id) {
+                    await verifyCompletedPayPalOrder(paypal_order_id);
+                } else {
+                    const sessionPriceRow = await dbGet(`SELECT price FROM sessions WHERE id = ?`, [session_id]);
+                    expectedTotal = computeDiscountedPrice(sessionPriceRow?.price || 0, couponRow) * names.length;
+                    await verifyCompletedPayPalOrder(paypal_order_id, expectedTotal);
                 }
-            } catch (error) {
-                console.error('[PAYPAL VERIFY ERROR]', error.message);
-                return res.status(500).json({ error: "Unable to complete security processing with merchant gateway." });
             }
+        } catch (verifyErr) {
+            if (verifyErr.code === 'PAYMENT_AMOUNT_MISMATCH') {
+                return res.status(400).json({ error: verifyErr.message });
+            }
+            if (verifyErr.code === 'PAYMENT_NOT_COMPLETED') {
+                return res.status(400).json({ error: "Payment verification checks dropped. Roster spot rejected." });
+            }
+            console.error('[PAYPAL VERIFY ERROR]', verifyErr.message);
+            return res.status(500).json({ error: "Unable to complete security processing with merchant gateway." });
         }
 
-        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at FROM sessions WHERE id = ?`, [session_id], (err, session) => {
-            if (err || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
+        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at FROM sessions WHERE id = ?`, [session_id], async (sessionErr, session) => {
+            if (sessionErr || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
             if (session.cancelled_at || session.archived_at) {
                 return res.status(400).json({ error: "This session is no longer available for registration." });
             }
 
-            // Honor custom_capacity override if configured, otherwise drop back to template standards
-            let maxActive = getDefaultActiveCapacity(session.event_type, session.custom_capacity);
-            let maxWaitlist = getDefaultWaitlistCapacity(session.event_type);
-            if (!siteSettings.paypal_checkout_enabled) {
-                maxWaitlist = OFFLINE_PAYMENT_WAITLIST_CAP;
-            }
-
-            // Handle the unique checkout flow for a waitlist player claiming an active position hold
             if (existing_booking_id) {
                 if (!siteSettings.paypal_checkout_enabled && session.price > 0) {
                     const hasVerifiedPayment = paypal_order_id
@@ -1150,9 +1498,9 @@ app.post('/api/book', async (req, res) => {
 
                 db.get(`SELECT id, status FROM bookings WHERE id = ? AND session_id = ?`, [existing_booking_id, session_id], (err, bRecord) => {
                     if (err || !bRecord) return res.status(400).json({ error: "Claim token footprint match missing." });
-                    
-                    db.run(`UPDATE bookings SET status = 'active', paypal_order_id = ?, invitation_sent_at = NULL WHERE id = ?`, [paypal_order_id, existing_booking_id], function(err) {
-                        if (err) return res.status(500).json({ error: err.message });
+
+                    db.run(`UPDATE bookings SET status = 'active', paypal_order_id = ?, invitation_sent_at = NULL WHERE id = ?`, [paypal_order_id, existing_booking_id], function(updateErr) {
+                        if (updateErr) return res.status(500).json({ error: updateErr.message });
                         db.get(`SELECT player_name, parent_name, parent_email, status FROM bookings WHERE id = ?`, [existing_booking_id], (fetchErr, updatedBooking) => {
                             if (!fetchErr && updatedBooking) {
                                 const amountPaid = (paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
@@ -1179,82 +1527,212 @@ app.post('/api/book', async (req, res) => {
                 return;
             }
 
-            const countQuery = `SELECT 
-                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND status = 'active') as active,
-                (SELECT COUNT(*) FROM bookings WHERE session_id = ? AND (status = 'waitlist' OR status = 'pending_payment')) as waitlist`;
+            try {
+                const bookingTotal = computeDiscountedPrice(session.price, couponRow) * names.length;
+                const finalOrderId = paypal_order_id
+                    || (bookingTotal <= 0 ? 'WAIVED_FREE' : 'WAITLIST_FREE');
 
-            db.get(countQuery, [session_id, session_id], (err, counts) => {
-                if (err) return res.status(500).json({ error: err.message });
+                const result = await processSessionRegistration({
+                    session_id,
+                    playerNames: names,
+                    parent_name,
+                    cleanEmail,
+                    paypal_order_id: finalOrderId,
+                    couponRow,
+                    siteSettings
+                });
 
-                let status = 'active';
-                let storedOrderId = paypal_order_id || 'WAITLIST_FREE';
+                const lineItems = [{
+                    sessionTitle: result.session.title,
+                    sessionWhen: formatSessionWhenPT(result.session.start_time, result.session.end_time),
+                    locationName: result.session.location || 'Location TBD',
+                    players: names,
+                    status: result.status,
+                    lineTotal: result.totalAmount
+                }];
 
-                if (!siteSettings.paypal_checkout_enabled) {
-                    if (counts.waitlist >= maxWaitlist) {
-                        return res.status(400).json({
-                            error: `This training session waitlist is completely full (${maxWaitlist} players while online checkout is paused).`
-                        });
-                    }
-                    status = 'waitlist';
-                    storedOrderId = 'WAITLIST_FREE';
-                } else if (counts.active >= maxActive) {
-                    if (counts.waitlist >= maxWaitlist) return res.status(400).json({ error: `This training session and its waitlist bounds are completely full.` });
-                    status = 'waitlist';
-                }
+                const totalPaid = finalOrderId === 'WAITLIST_FREE' || finalOrderId === 'WAIVED_FREE'
+                    ? 0
+                    : result.totalAmount;
 
-                const finalizeInsert = (queuePosition) => {
-                    const waiverTimestamp = new Date().toISOString();
-                    const waiverAcceptedFlag = 1;
-
-                    const insertQuery = `
-                        INSERT INTO bookings (
-                            session_id, player_name, parent_name, parent_email,
-                            status, paypal_order_id, waiver_accepted, waiver_timestamp, queue_position, coupon_code
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-
-                    const storedCouponCode = couponRow ? couponRow.code : null;
-
-                    db.run(insertQuery, [
-                        session_id, player_name, parent_name, cleanEmail, status,
-                        storedOrderId, waiverAcceptedFlag, waiverTimestamp, queuePosition, storedCouponCode
-                    ], function(insertErr) {
-                        if (insertErr) return res.status(500).json({ error: insertErr.message });
-                        const amountPaid = (!paypal_order_id || paypal_order_id === 'WAIVED_FREE' || paypal_order_id === 'WAITLIST_FREE') ? 0 : session.price;
-                        sendBookingConfirmationEmail({
-                            parentEmail: cleanEmail,
-                            parentName: parent_name,
-                            playerName: player_name,
-                            status,
-                            sessionId: session_id,
-                            sessionTitle: session.title,
-                            startTime: session.start_time,
-                            endTime: session.end_time,
-                            location: session.location,
-                            eventType: session.event_type,
-                            price: session.price,
-                            amountPaid,
-                            isWaitlist: status === 'waitlist'
-                        });
-                        res.json({ success: true, status: status, booking_id: this.lastID });
+                if (names.length > 1) {
+                    sendBatchRegistrationEmail({
+                        parentEmail: cleanEmail,
+                        parentName: parent_name,
+                        lineItems,
+                        totalPaid,
+                        checkoutPaused: !siteSettings.paypal_checkout_enabled
                     });
-                };
-
-                if (status === 'waitlist') {
-                    db.get(
-                        `SELECT COALESCE(MAX(queue_position), 0) AS max_queue
-                         FROM bookings
-                         WHERE session_id = ? AND status IN ('waitlist', 'pending_payment')`,
-                        [session_id],
-                        (queueErr, queueRow) => {
-                            if (queueErr) return res.status(500).json({ error: queueErr.message });
-                            finalizeInsert((queueRow?.max_queue || 0) + 1);
-                        }
-                    );
                 } else {
-                    finalizeInsert(null);
+                    sendBookingConfirmationEmail({
+                        parentEmail: cleanEmail,
+                        parentName: parent_name,
+                        playerName: names[0],
+                        status: result.status,
+                        sessionId: session_id,
+                        sessionTitle: result.session.title,
+                        startTime: result.session.start_time,
+                        endTime: result.session.end_time,
+                        location: result.session.location,
+                        eventType: result.session.event_type,
+                        price: result.session.price,
+                        amountPaid: totalPaid / names.length,
+                        isWaitlist: result.status === 'waitlist'
+                    });
                 }
-            });
+
+                res.json({
+                    success: true,
+                    status: result.status,
+                    booking_ids: result.bookings.map((b) => b.booking_id),
+                    booking_id: result.bookings[0]?.booking_id
+                });
+            } catch (registrationErr) {
+                if (registrationErr.code === 'CAPACITY_FULL' || registrationErr.code === 'SESSION_NOT_FOUND' || registrationErr.code === 'SESSION_UNAVAILABLE') {
+                    return res.status(400).json({ error: registrationErr.message });
+                }
+                console.error('[BOOK ERROR]', registrationErr.message);
+                return res.status(500).json({ error: registrationErr.message });
+            }
         });
+    });
+});
+
+app.post('/api/book/batch', async (req, res) => {
+    const { parent_email, parent_name, paypal_order_id, coupon_code, items } = req.body;
+    if (!parent_email) return res.status(400).json({ error: 'Parent email is required.' });
+    if (!Array.isArray(items) || !items.length) {
+        return res.status(400).json({ error: 'At least one session is required.' });
+    }
+
+    const cleanEmail = parent_email.toLowerCase().trim();
+
+    db.get(`SELECT email FROM banned_emails WHERE email = ?`, [cleanEmail], async (err, banRecord) => {
+        if (err) return res.status(500).json({ error: 'Internal security handshake check fault.' });
+        if (banRecord) {
+            return res.status(403).json({ error: 'Registration denied. Please contact Coach Ben directly for scheduling alternatives.' });
+        }
+
+        let siteSettings;
+        try {
+            siteSettings = await getSiteSettings();
+        } catch (settingsErr) {
+            return res.status(500).json({ error: 'Unable to load site configuration.' });
+        }
+
+        const checkoutPausedMessage = 'Online checkout is temporarily unavailable. You have been added to the waitlist — Coach Ben will confirm your spot after payment is arranged offline.';
+
+        let couponRow = null;
+        try {
+            couponRow = await resolveCouponRow(coupon_code);
+        } catch (couponErr) {
+            if (couponErr.code === 'INVALID_COUPON') {
+                return res.status(400).json({ error: 'Invalid or expired coupon code.' });
+            }
+            return res.status(500).json({ error: couponErr.message });
+        }
+
+        if (!siteSettings.paypal_checkout_enabled) {
+            const isPaidPayPalOrder = paypal_order_id
+                && paypal_order_id !== 'WAITLIST_FREE'
+                && paypal_order_id !== 'WAIVED_FREE';
+            if (isPaidPayPalOrder) {
+                return res.status(503).json({ error: checkoutPausedMessage });
+            }
+        }
+
+        const normalizedItems = [];
+        for (const rawItem of items) {
+            const playerNames = normalizePlayerNames(null, rawItem.player_names);
+            if (!rawItem.session_id || !playerNames.length) {
+                return res.status(400).json({ error: 'Each cart item must include a session and at least one player.' });
+            }
+            normalizedItems.push({
+                session_id: parseInt(rawItem.session_id, 10),
+                player_names: playerNames
+            });
+        }
+
+        let expectedTotal = 0;
+        try {
+            expectedTotal = await computeRegistrationOrderTotal(normalizedItems, couponRow);
+        } catch (totalErr) {
+            const status = totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE' ? 400 : 500;
+            return res.status(status).json({ error: totalErr.message });
+        }
+
+        const finalOrderId = paypal_order_id
+            || (expectedTotal <= 0 ? 'WAIVED_FREE' : 'WAITLIST_FREE');
+
+        try {
+            if (finalOrderId !== 'WAITLIST_FREE' && finalOrderId !== 'WAIVED_FREE') {
+                await verifyCompletedPayPalOrder(finalOrderId, expectedTotal);
+            }
+        } catch (verifyErr) {
+            if (verifyErr.code === 'PAYMENT_AMOUNT_MISMATCH') {
+                return res.status(400).json({ error: verifyErr.message });
+            }
+            if (verifyErr.code === 'PAYMENT_NOT_COMPLETED') {
+                return res.status(400).json({ error: 'Payment verification checks dropped. Roster spot rejected.' });
+            }
+            console.error('[PAYPAL VERIFY ERROR]', verifyErr.message);
+            return res.status(500).json({ error: 'Unable to complete security processing with merchant gateway.' });
+        }
+
+        const lineItems = [];
+        const allBookingIds = [];
+        let overallStatus = 'active';
+
+        try {
+            for (const item of normalizedItems) {
+                const result = await processSessionRegistration({
+                    session_id: item.session_id,
+                    playerNames: item.player_names,
+                    parent_name,
+                    cleanEmail,
+                    paypal_order_id: finalOrderId,
+                    couponRow,
+                    siteSettings
+                });
+
+                if (result.status === 'waitlist') overallStatus = 'waitlist';
+
+                lineItems.push({
+                    sessionTitle: result.session.title,
+                    sessionWhen: formatSessionWhenPT(result.session.start_time, result.session.end_time),
+                    locationName: result.session.location || 'Location TBD',
+                    players: item.player_names,
+                    status: result.status,
+                    lineTotal: result.totalAmount
+                });
+
+                allBookingIds.push(...result.bookings.map((b) => b.booking_id));
+            }
+        } catch (registrationErr) {
+            const status = registrationErr.code === 'CAPACITY_FULL'
+                || registrationErr.code === 'SESSION_NOT_FOUND'
+                || registrationErr.code === 'SESSION_UNAVAILABLE'
+                ? 400
+                : 500;
+            return res.status(status).json({ error: registrationErr.message });
+        }
+
+        const totalPaid = finalOrderId === 'WAITLIST_FREE' || finalOrderId === 'WAIVED_FREE'
+            ? 0
+            : expectedTotal;
+
+        sendBatchRegistrationEmail({
+            parentEmail: cleanEmail,
+            parentName: parent_name,
+            lineItems,
+            totalPaid,
+            checkoutPaused: !siteSettings.paypal_checkout_enabled
+        });
+
+        res.json({
+            success: true,
+            status: overallStatus,
+            booking_ids: allBookingIds
         });
     });
 });
@@ -1281,6 +1759,15 @@ app.post('/api/claim-spot/lookup', (req, res) => {
 
 // 4. Admin Portal: System Authentication endpoint
 app.post('/api/admin/login', (req, res) => {
+    if (isSimulatePayPalCheckoutEnabled()) {
+        if (!JWT_SECRET) {
+            return res.status(500).json({ error: 'JWT_SECRET must be set in .env.local for local test mode.' });
+        }
+        const token = jwt.sign({ role: 'admin', simulated: true }, JWT_SECRET, { expiresIn: '24h' });
+        console.log('[SIMULATE] Coach login accepted without credentials');
+        return res.json({ success: true, token, simulated: true });
+    }
+
     const { username, password } = req.body;
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
         const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
@@ -2229,4 +2716,11 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Secure Server executing smoothly on network port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`Secure Server executing smoothly on network port ${PORT}`);
+    if (isSimulatePayPalCheckoutEnabled()) {
+        console.log('[SIMULATE] PayPal checkout simulation is ON — no real PayPal API calls will be made.');
+        console.log('[SIMULATE] Coach login simulation is ON — use the view toggle with no password.');
+        console.log('[SIMULATE] Use the purple "Simulate PayPal Checkout" buttons in the calendar UI.');
+    }
+});

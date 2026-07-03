@@ -5,6 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test:checkout": "./scripts/test-checkout-local.sh",
+    "seed:demo": "node scripts/seed-demo-sessions.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

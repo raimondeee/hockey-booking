@@ -393,6 +393,81 @@ function buildBookingConfirmationSubject(playerName, sessionTitle, isWaitlist) {
     return `[${tag}] ${playerName} — ${sessionTitle}`;
 }
 
+function buildBatchRegistrationEmail({
+    parentName,
+    lineItems,
+    totalPaid,
+    checkoutPaused,
+    contactEmail
+}) {
+    const parent = parentName || 'there';
+    const hasWaitlist = lineItems.some((item) => item.status === 'waitlist');
+    const headerTitle = hasWaitlist ? 'Registration Received' : 'Registration Confirmed';
+    const totalFormatted = `$${parseFloat(totalPaid || 0).toFixed(2)}`;
+    const totalNote = checkoutPaused || totalPaid <= 0 ? 'payment pending / waitlist' : 'paid via PayPal';
+
+    const lineItemsHtml = lineItems.map((item) => {
+        const playersHtml = item.players.map((p) => `<li>${escapeHtml(p)}</li>`).join('');
+        const statusLabel = item.status === 'waitlist' ? 'Waitlist' : 'Active roster';
+        const amountLine = item.lineTotal != null
+            ? `<p style="margin:0 0 6px 0;font-size:13px;color:#555;"><strong>Line total:</strong> $${parseFloat(item.lineTotal).toFixed(2)}</p>`
+            : '';
+        return `
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:12px;">
+            <p style="margin:0 0 6px 0;font-size:15px;font-weight:bold;color:#1e293b;">${escapeHtml(item.sessionTitle)}</p>
+            <p style="margin:0 0 6px 0;font-size:13px;color:#555;">${escapeHtml(item.sessionWhen)}</p>
+            <p style="margin:0 0 8px 0;font-size:13px;color:#555;"><strong>Rink:</strong> ${escapeHtml(item.locationName || 'Location TBD')}</p>
+            <p style="margin:0 0 4px 0;font-size:13px;color:#555;"><strong>Players:</strong></p>
+            <ul style="margin:0 0 8px 18px;padding:0;font-size:13px;color:#333;">${playersHtml}</ul>
+            <p style="margin:0 0 6px 0;font-size:13px;color:#555;"><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
+            ${amountLine}
+        </div>`;
+    }).join('');
+
+    const lineItemsText = lineItems.map((item) => {
+        const players = item.players.join(', ');
+        const statusLabel = item.status === 'waitlist' ? 'Waitlist' : 'Active roster';
+        return `- ${item.sessionTitle} (${item.sessionWhen})\n  Players: ${players}\n  Status: ${statusLabel}`;
+    }).join('\n\n');
+
+    const introHtml = hasWaitlist
+        ? 'Thank you for registering. One or more entries below are on the <strong>waitlist</strong>. Coach Ben will contact you if a spot opens or to arrange payment.'
+        : 'Thank you — your registration is confirmed for the session(s) below.';
+
+    const bodyHtml = `
+    ${buildGreetingHtml(parent)}
+    ${buildIntroMessageHtml(introHtml)}
+    ${lineItemsHtml}
+    <p style="margin:0 0 8px 0;font-size:14px;color:#333;"><strong>Order total processed:</strong> ${escapeHtml(totalFormatted)} <span style="color:#666;">(${escapeHtml(totalNote)})</span></p>
+    <p style="margin:0;">If you have questions, reply to this email — we&rsquo;re happy to help.</p>`;
+
+    const bodyText = `Hi ${parent},
+
+${hasWaitlist
+        ? 'Thank you for registering. One or more entries are on the waitlist.'
+        : 'Thank you — your registration is confirmed.'}
+
+${lineItemsText}
+
+Order total processed: ${totalFormatted} (${totalNote})
+
+If you have questions, reply to this email.`;
+
+    return {
+        subject: hasWaitlist
+            ? `[WAITLIST] Registration — ${lineItems.length} session(s)`
+            : `[CONFIRMED] Registration — ${lineItems.length} session(s)`,
+        html: buildBrandedEmailHtml({
+            preheader: `Registration for ${lineItems.length} session(s)`,
+            headerTitle,
+            bodyHtml,
+            footerNote: 'This is your automated registration confirmation.',
+            contactEmail: contactEmail || DEFAULT_CONTACT_EMAIL
+        }),
+        text: buildBrandedEmailText(bodyText, 'This is your automated registration confirmation.', contactEmail || DEFAULT_CONTACT_EMAIL)
+    };
+}
+
 function buildBroadcastEmail({
     message,
     sessionTitle,
@@ -684,6 +759,7 @@ module.exports = {
     buildBookingConfirmationText,
     buildBookingEmailContext,
     buildBookingConfirmationSubject,
+    buildBatchRegistrationEmail,
     buildBroadcastEmail,
     buildMovedToWaitlistEmail,
     buildRemovedFromSessionEmail,

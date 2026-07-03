@@ -64,6 +64,42 @@
         .filter-btn { padding: 6px 14px; border: 1px solid #ddd; background: #fff; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: bold; color: #555; transition: all 0.2s ease; }
         .filter-btn:hover { background: #f1f1f1; }
         .filter-btn.active { background: #0070ba; color: white; border-color: #0070ba; }
+        #filterBar { justify-content: space-between; gap: 12px; }
+        .filter-bar-controls {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-left: auto;
+            flex-wrap: wrap;
+        }
+        .filter-dropdown-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .filter-dropdown-name {
+            font-size: 12px;
+            font-weight: bold;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .filter-select {
+            flex: 0 1 auto;
+            min-width: 160px;
+            max-width: 280px;
+            margin-left: 0;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #555;
+            background: #fff;
+            cursor: pointer;
+        }
+        .filter-select:focus { outline: none; border-color: #0070ba; box-shadow: 0 0 0 2px rgba(0, 112, 186, 0.15); }
 
         #calendar { 
             width: 95%; 
@@ -587,8 +623,165 @@
             text-decoration: none;
         }
         
-        #contactCoachLink { color: #aaaaaa; padding: 5px 0; }
+        #contactCoachLink { color: #aaaaaa; padding: 5px 0; display: none; }
         #contactCoachLink:hover { color: #fff; }
+        #contactCoachLink.contact-coach-visible { display: inline-block; }
+
+        .day-picker-event-list { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow-y: auto; }
+        .day-picker-event-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #f8fafc;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .day-picker-event-btn:hover { background: #e8f4fc; border-color: #0070ba; }
+        .day-picker-time { font-size: 12px; font-weight: bold; color: #0070ba; text-transform: uppercase; letter-spacing: 0.3px; }
+        .day-picker-title { font-size: 15px; font-weight: bold; color: #1e293b; line-height: 1.3; }
+        .day-picker-location { font-size: 12px; color: #64748b; }
+
+        .cart-header-btn {
+            position: relative;
+            margin-right: 10px;
+            padding: 8px 14px;
+            background: #343a40;
+            display: inline-flex;
+            align-items: center;
+            transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        html.coach-mode #cartBtn { display: none !important; }
+        .cart-header-btn.cart-has-items {
+            background: #0070ba !important;
+            border-color: #005fa3;
+            box-shadow: 0 0 14px rgba(0, 112, 186, 0.45);
+        }
+        @keyframes cartBounce {
+            0%, 100% { transform: translateY(0); }
+            25% { transform: translateY(-5px); }
+            50% { transform: translateY(0); }
+            75% { transform: translateY(-2px); }
+        }
+        .cart-header-btn.cart-bounce {
+            animation: cartBounce 0.55s ease;
+        }
+        .cart-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            margin-left: 6px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: #0070ba;
+            color: #fff;
+            font-size: 11px;
+            line-height: 1;
+        }
+        .cart-badge:empty, .cart-badge[data-count="0"] { display: none; }
+
+        .player-names-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .player-name-row { display: flex; align-items: center; gap: 8px; }
+        .player-name-row input { flex: 1; }
+        .player-remove-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .add-player-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid #0070ba;
+            background: #fff;
+            color: #0070ba;
+            font-size: 22px;
+            font-weight: bold;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+        }
+        .add-player-btn:hover { background: #e8f4fc; }
+        .session-order-total, .cart-order-total {
+            margin: 8px 0 0;
+            font-size: 14px;
+            font-weight: bold;
+            color: #0070ba;
+        }
+
+        .cart-item-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #f8fafc;
+        }
+        .cart-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .cart-item-title { font-weight: bold; color: #1e293b; font-size: 14px; line-height: 1.3; }
+        .cart-item-meta { font-size: 12px; color: #64748b; margin-top: 4px; }
+        .cart-child-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #1e293b;
+            cursor: pointer;
+        }
+        .cart-child-checkbox-row input { cursor: pointer; }
+        .cart-player-names-section {
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 14px;
+            margin-bottom: 14px;
+        }
+        .cart-remove-btn {
+            border: none;
+            background: transparent;
+            color: #dc3545;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .overview-actions { display: flex; flex-direction: column; gap: 10px; }
+        .overview-actions .btn-secondary { width: 100%; text-align: center; box-sizing: border-box; }
+
+        .simulate-checkout-banner {
+            position: sticky;
+            top: 0;
+            z-index: 1001;
+            background: #6f42c1;
+            color: #fff;
+            text-align: center;
+            padding: 10px 16px;
+            font-size: 13px;
+            line-height: 1.45;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        .simulate-pay-btn:disabled { cursor: not-allowed !important; opacity: 0.55 !important; }
 
         /* Coach session management — wider + 25% larger UI on desktop */
         @media (min-width: 901px) {
@@ -693,11 +886,10 @@
             #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
             .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
             .filter-controls { flex-wrap: wrap; padding: 10px; }
-            #filterBar .filter-label { display: none; }
-            .filter-btn .filter-text-full,
-            .filter-btn .filter-label-full { display: none; }
-            .filter-btn .filter-text-mobile,
-            .filter-btn .filter-label-short { display: inline; }
+            .filter-bar-controls { width: 100%; margin-left: 0; gap: 10px; }
+            .filter-dropdown-label { flex: 1 1 100%; }
+            .filter-select { max-width: none; width: 100%; min-width: 0; }
+            #contactCoachLink.contact-coach-visible { display: inline-block; }
             .calendar-layout-stack .calendar-subscribe-bar {
                 order: 2;
                 margin-top: 16px;
@@ -720,6 +912,9 @@
         </a>
     </div>
     <div class="header-right">
+        <button id="cartBtn" class="btn btn-secondary cart-header-btn" onclick="openCartCheckoutModal()" aria-label="Open cart">
+            🛒 Cart<span id="cartBadge" class="cart-badge" data-count="0">0</span>
+        </button>
         <button id="manageCouponsBtn" class="btn btn-secondary" style="display: none; background: #343a40; margin-right: 10px; padding: 8px 14px;" onclick="openCouponModal()">🎟️ Manage Coupons</button>
         <span id="adminBadge" class="admin-badge">COACH MODE ACTIVE</span>
         <button id="authBtn" class="btn btn-primary" onclick="toggleAuthField()">Coach Portal</button>
@@ -729,10 +924,26 @@
 <div id="siteNoticeBannerMount"></div>
 
 <div class="filter-controls" id="filterBar">
-    <span class="filter-label">Filter Schedule:</span>
-    <button class="filter-btn" id="filterBtn-all" onclick="applyLiveFilter('all')"><span class="filter-text-full">Show All</span><span class="filter-text-mobile">Show all groups</span></button>
-    <button class="filter-btn" id="filterBtn-large" onclick="applyLiveFilter('large')"><span class="filter-label-full">Large Group Clinics</span><span class="filter-label-short">Large</span></button>
-    <button class="filter-btn" id="filterBtn-small" onclick="applyLiveFilter('small')"><span class="filter-label-full">Small Group Sessions</span><span class="filter-label-short">Small</span></button>
+    <span class="filter-label">Filter</span>
+    <div class="filter-bar-controls">
+        <label class="filter-dropdown-label">
+            <span class="filter-dropdown-name">Group</span>
+            <select id="liveFilterGroup" class="filter-select" onchange="applyLiveFilters()" aria-label="Filter by group size">
+                <option value="all">All Groups</option>
+                <option value="large">Large Group Clinics</option>
+                <option value="small">Small Group Sessions</option>
+            </select>
+        </label>
+        <label class="filter-dropdown-label">
+            <span class="filter-dropdown-name">Location</span>
+            <select id="liveFilterLocation" class="filter-select" onchange="applyLiveFilters()" aria-label="Filter by rink location">
+                <option value="all">All Locations</option>
+                <option value="Sherwood Ice Arena">Sherwood Ice Arena</option>
+                <option value="Winterhawks Skating Center - Beaverton">Winterhawks Skating Center - Beaverton</option>
+                <option value="The Veterans Memorial Coliseum (VMC)">The Veterans Memorial Coliseum (VMC)</option>
+            </select>
+        </label>
+    </div>
 </div>
 
 <div class="filter-controls coach-schedule-filter" id="coachScheduleFilter">
@@ -791,7 +1002,17 @@
         <a id="overviewIcsDownload" href="#">Download .ics</a>
     </div>
     
-    <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
+    <div class="overview-actions">
+        <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
+        <button type="button" class="btn btn-secondary" style="padding: 12px;" onclick="addSelectedEventToCart()">Add to Cart 🛒</button>
+    </div>
+</div>
+
+<div class="modal" id="dayEventPickerModal" style="max-width: 440px;">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3 style="margin-top:0;">Select a Session</h3>
+    <p id="dayPickerSubtitle" style="font-size: 13px; color: #666; margin-top: -8px; margin-bottom: 16px;"></p>
+    <div id="dayPickerEventList" class="day-picker-event-list"></div>
 </div>
 
 <div class="modal" id="bookingModal">
@@ -822,7 +1043,12 @@
 
         <div class="input-group"><label>Parent/Guardian Full Name *</label><input type="text" id="parentName" oninput="validateForm()"></div>
         <div class="input-group"><label>Parent Email *</label><input type="email" id="parentEmail" oninput="validateForm()"></div>
-        <div class="input-group"><label>Student / Player Full Name *</label><input type="text" id="playerName" oninput="validateForm()"></div>
+        <div class="input-group" id="playerNamesSection">
+            <label>Student / Player Full Name *</label>
+            <div id="playerNamesList" class="player-names-list"></div>
+            <button type="button" class="add-player-btn" onclick="addPlayerNameField('playerNamesList')" aria-label="Add another player">+</button>
+            <p id="sessionOrderTotal" class="session-order-total"></p>
+        </div>
         
         <div class="input-group">
             <label>Promo / Coupon Code</label>
@@ -1049,6 +1275,67 @@
     <div id="couponListWrapper" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;"></div>
 </div>
 
+<div class="modal" id="cartCheckoutModal" style="max-width: 560px; max-height: 90vh; overflow-y: auto;">
+    <span class="close-btn" onclick="closeAllModals()">&times;</span>
+    <h3 style="margin-top:0;">Cart</h3>
+    <p style="font-size: 13px; color: #666; margin-top: -8px;">Review your sessions, assign players, and complete one checkout.</p>
+
+    <div id="cartPlayerNamesSection" class="cart-player-names-section" style="display:none;">
+        <div class="input-group"><label>Student / Player Full Name *</label><input type="text" id="cartPlayerName1" placeholder="Student / player full name" oninput="onCartGlobalPlayersChange()"></div>
+        <div class="waiver-checkbox-group" style="margin-bottom: 10px;">
+            <input type="checkbox" id="cartMultipleChildrenCheckbox" onchange="onCartMultipleChildrenToggle()">
+            <label for="cartMultipleChildrenCheckbox">I have more than one child</label>
+        </div>
+        <div class="input-group" id="cartPlayerName2Wrapper" style="display:none;">
+            <label>Second Player Full Name *</label>
+            <input type="text" id="cartPlayerName2" placeholder="Second player full name" oninput="onCartGlobalPlayersChange()">
+        </div>
+    </div>
+
+    <div id="cartItemsContainer"></div>
+    <p id="cartEmptyMessage" style="display:none; font-size: 14px; color: #666;">Your cart is empty. Add sessions from the calendar to get started.</p>
+
+    <div id="cartCheckoutFields">
+        <div class="input-group"><label>Parent/Guardian Full Name *</label><input type="text" id="cartParentName" oninput="validateCartForm()"></div>
+        <div class="input-group"><label>Parent Email *</label><input type="email" id="cartParentEmail" oninput="validateCartForm()"></div>
+
+        <div class="input-group">
+            <label>Promo / Coupon Code</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="cartCouponCodeInput" placeholder="e.g., SAVE10" style="text-transform: uppercase;">
+                <button type="button" class="btn btn-secondary" onclick="applyCartCouponDiscount()" style="padding: 4px 12px; margin:0; font-size:12px;">Apply</button>
+            </div>
+            <span id="cartCouponFeedback" style="font-size:12px; font-weight:bold; display:block; margin-top:4px;"></span>
+        </div>
+
+        <p id="cartOrderTotal" class="cart-order-total"></p>
+
+        <label style="display:block; font-weight:bold; font-size:14px; margin-bottom:5px;">Liability Waiver *</label>
+        <div class="waiver-box">
+            <strong>Youth Hockey Training Waiver & Release of Liability</strong><br><br>
+            By registering for and participating in any private lesson, small group session, clinic, camp, or training program (“Programs”) offered by Ben Stadey and Ben Stadey Hockey Training (“Coach/Trainer”), I acknowledge and agree to the following terms on behalf of myself and my child/participant(s):<br><br>
+            <em>The full waiver terms shown on the single-session registration form apply to all players and sessions in this cart.</em>
+        </div>
+
+        <div class="waiver-checkbox-group">
+            <input type="checkbox" id="cartWaiverCheckbox" onchange="validateCartForm()">
+            <label for="cartWaiverCheckbox">I have read and agree to the Waiver & Release of Liability terms for all players and sessions in this purchase.</label>
+        </div>
+
+        <div id="cart-paypal-button-wrapper">
+            <div id="cartPaypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please complete all fields to unlock payment.')"></div>
+            <div id="cart-paypal-button-container"></div>
+        </div>
+
+        <div id="cartPaymentsPausedNotice" style="display:none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 10px;">
+            Online checkout is temporarily unavailable. Submit below to join the waitlist for all selected sessions.
+        </div>
+
+        <button id="cartFreeSubmitBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitCartBatch(null)">Complete Free Registration</button>
+        <button id="cartWaitlistBtn" class="btn btn-primary" style="display:none; width:100%; margin-top:10px;" onclick="submitCartBatch(null)" disabled>Join Waitlist (Free)</button>
+    </div>
+</div>
+
 <script src="/site-banner.js"></script>
 <script src="/app-dialog.js"></script>
 <script>
@@ -1062,7 +1349,7 @@
     let verifiedCouponCode = null;
     let currentRosterData = null;
     let sessionFormMode = 'create';
-    let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '', offline_waitlist_cap: 40 };
+    let siteConfig = { paypal_checkout_enabled: true, banner_enabled: false, banner_message: '', offline_waitlist_cap: 40, simulate_checkout: false, simulate_coach_login: false };
 
     const locationAddressMap = {
         "Sherwood Ice Arena": "20407 SW Borchers Dr, Sherwood, OR 97140",
@@ -1078,6 +1365,718 @@
 
     const VALID_EVENT_COLORS = ['blue', 'red', 'green'];
     const SAVED_REGISTRATION_KEY = 'bsh_saved_registration_details';
+    const CART_STORAGE_KEY = 'bsh_registration_cart';
+
+    let simulateBookingPayRefresh = null;
+    let simulateCartPayRefresh = null;
+
+    let registrationCart = [];
+    let cartPaypalActionsInstance = null;
+    let cartVerifiedCouponCode = null;
+    let cartVerifiedDiscountAmount = 0;
+    let cartUnitPrices = {};
+    let cartAttentionTimer = null;
+
+    function showSimulateCheckoutBanner() {
+        if (!siteConfig.simulate_checkout || document.getElementById('simulateCheckoutBanner')) return;
+        const banner = document.createElement('div');
+        banner.id = 'simulateCheckoutBanner';
+        banner.className = 'simulate-checkout-banner';
+        banner.innerHTML = '<strong>Local test mode</strong> — Simulated PayPal checkout and one-click coach/customer view switching (no password). Bookings and receipt emails use the normal server flow.';
+        document.body.prepend(banner);
+    }
+
+    function mountSimulatedCheckoutButton({ containerId, overlayId, label, getPayload, onPaid, validateFn }) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+
+        container.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary simulate-pay-btn';
+        btn.style.cssText = 'width:100%; background:#6f42c1; margin-top:4px;';
+        btn.innerText = label || 'Simulate PayPal Checkout (local test)';
+
+        const refresh = () => {
+            const valid = validateFn ? !!validateFn() : true;
+            btn.disabled = !valid;
+        };
+
+        btn.onclick = async () => {
+            if (validateFn && !validateFn()) {
+                alert('Please complete all required fields first.');
+                return;
+            }
+            btn.disabled = true;
+            const originalText = btn.innerText;
+            btn.innerText = 'Processing simulated payment...';
+            try {
+                const orderId = await requestPayPalOrder(getPayload());
+                onPaid(orderId);
+            } catch (err) {
+                alert(err.message || 'Simulated checkout failed.');
+                btn.innerText = originalText;
+                refresh();
+            }
+        };
+
+        container.appendChild(btn);
+        if (overlayId) {
+            const overlay = document.getElementById(overlayId);
+            if (overlay) overlay.style.display = 'none';
+        }
+        refresh();
+        return { refresh };
+    }
+
+    function loadCartFromStorage() {
+        try {
+            const raw = localStorage.getItem(CART_STORAGE_KEY);
+            registrationCart = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(registrationCart)) registrationCart = [];
+        } catch (e) {
+            registrationCart = [];
+        }
+        updateCartBadge();
+    }
+
+    function saveCartToStorage() {
+        try {
+            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(registrationCart));
+        } catch (e) {
+            console.warn('Unable to save cart:', e);
+        }
+        updateCartBadge();
+    }
+
+    function updateCartBadge() {
+        const badge = document.getElementById('cartBadge');
+        const count = registrationCart.length;
+        if (badge) {
+            badge.textContent = String(count);
+            badge.dataset.count = String(count);
+        }
+        if (count > 0 && !adminToken) {
+            ensureCartAttention();
+        } else {
+            stopCartAttention();
+        }
+    }
+
+    function triggerCartBounce() {
+        const btn = document.getElementById('cartBtn');
+        if (!btn || registrationCart.length === 0 || adminToken) return;
+        btn.classList.remove('cart-bounce');
+        void btn.offsetWidth;
+        btn.classList.add('cart-bounce');
+        setTimeout(() => btn.classList.remove('cart-bounce'), 550);
+    }
+
+    function ensureCartAttention() {
+        if (adminToken || registrationCart.length === 0) {
+            stopCartAttention();
+            return;
+        }
+        const btn = document.getElementById('cartBtn');
+        if (!btn) return;
+        btn.classList.add('cart-has-items');
+        if (!cartAttentionTimer) {
+            triggerCartBounce();
+            cartAttentionTimer = setInterval(triggerCartBounce, 6000);
+        }
+    }
+
+    function stopCartAttention() {
+        const btn = document.getElementById('cartBtn');
+        if (btn) btn.classList.remove('cart-has-items', 'cart-bounce');
+        if (cartAttentionTimer) {
+            clearInterval(cartAttentionTimer);
+            cartAttentionTimer = null;
+        }
+    }
+
+    function buildCartItemFromEvent(event) {
+        const props = event.extendedProps || {};
+        return {
+            sessionId: String(event.id),
+            title: props.sessionTitle || event.title.split('(')[0].trim(),
+            start: event.start ? event.start.toISOString() : null,
+            location: props.location || '',
+            price: props.price,
+            accessCode: props.access_code || null,
+            playerNames: [],
+            excludedChildIndices: []
+        };
+    }
+
+    function ensureCartItemPlayerShape(item) {
+        if (!Array.isArray(item.excludedChildIndices)) {
+            item.excludedChildIndices = [];
+        }
+        if (!Array.isArray(item.playerNames)) {
+            item.playerNames = [];
+        }
+    }
+
+    function getCartGlobalChildNames() {
+        const name1El = document.getElementById('cartPlayerName1');
+        const name2El = document.getElementById('cartPlayerName2');
+        const multiEl = document.getElementById('cartMultipleChildrenCheckbox');
+        const name1 = name1El ? name1El.value.trim() : '';
+        const multi = multiEl ? multiEl.checked : false;
+        const name2 = multi && name2El ? name2El.value.trim() : '';
+        return [name1, name2].filter(Boolean);
+    }
+
+    function getCartItemIncludedIndices(item) {
+        ensureCartItemPlayerShape(item);
+        const globalCount = getCartGlobalChildNames().length;
+        const excluded = item.excludedChildIndices || [];
+        return [...Array(globalCount).keys()].filter((index) => !excluded.includes(index));
+    }
+
+    function getCartItemPlayerNames(item) {
+        const names = getCartGlobalChildNames();
+        return getCartItemIncludedIndices(item)
+            .map((index) => names[index])
+            .filter(Boolean);
+    }
+
+    function syncCartItemsFromGlobalChildren() {
+        registrationCart.forEach((item) => {
+            ensureCartItemPlayerShape(item);
+            const globalNames = getCartGlobalChildNames();
+            item.excludedChildIndices = item.excludedChildIndices.filter((index) => index < globalNames.length);
+            item.playerNames = getCartItemPlayerNames(item);
+        });
+        saveCartToStorage();
+        updateCartOrderTotalDisplay();
+    }
+
+    function onCartMultipleChildrenToggle() {
+        const multi = document.getElementById('cartMultipleChildrenCheckbox').checked;
+        document.getElementById('cartPlayerName2Wrapper').style.display = multi ? 'block' : 'none';
+        if (!multi) {
+            document.getElementById('cartPlayerName2').value = '';
+            registrationCart.forEach((item) => {
+                ensureCartItemPlayerShape(item);
+                item.excludedChildIndices = item.excludedChildIndices.filter((index) => index !== 1);
+            });
+        }
+        onCartGlobalPlayersChange();
+    }
+
+    function onCartGlobalPlayersChange() {
+        syncCartItemsFromGlobalChildren();
+        registrationCart.forEach((item) => {
+            renderCartItemPlayerCheckboxes(item.sessionId, item);
+        });
+        validateCartForm();
+    }
+
+    function renderCartItemPlayerCheckboxes(sessionId, item) {
+        const container = document.getElementById(`cart-players-${sessionId}`);
+        if (!container) return;
+
+        ensureCartItemPlayerShape(item);
+        const globalNames = getCartGlobalChildNames();
+        const excluded = item.excludedChildIndices || [];
+
+        container.innerHTML = '';
+        if (!globalNames.length) {
+            container.innerHTML = '<p style="font-size:12px; color:#888; margin:0;">Enter player name(s) above to assign to this session.</p>';
+            return;
+        }
+
+        globalNames.forEach((name, index) => {
+            const row = document.createElement('label');
+            row.className = 'cart-child-checkbox-row';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'cart-child-checkbox';
+            checkbox.dataset.childIndex = String(index);
+            checkbox.checked = !excluded.includes(index);
+            checkbox.addEventListener('change', () => {
+                syncCartItemPlayersFromDOM();
+                validateCartForm();
+            });
+
+            const labelText = document.createElement('span');
+            labelText.textContent = name;
+
+            row.appendChild(checkbox);
+            row.appendChild(labelText);
+            container.appendChild(row);
+        });
+    }
+
+    function addSelectedEventToCart() {
+        if (!selectedEvent || adminToken) return;
+        const sessionId = String(selectedEvent.id);
+        if (registrationCart.some((item) => item.sessionId === sessionId)) {
+            alert('This session is already in your cart.');
+            closeAllModals();
+            ensureCartAttention();
+            triggerCartBounce();
+            return;
+        }
+        registrationCart.push(buildCartItemFromEvent(selectedEvent));
+        saveCartToStorage();
+        closeAllModals();
+        ensureCartAttention();
+        triggerCartBounce();
+    }
+
+    function removeCartItem(sessionId) {
+        registrationCart = registrationCart.filter((item) => item.sessionId !== String(sessionId));
+        saveCartToStorage();
+        renderCartCheckoutUI();
+        validateCartForm();
+    }
+
+    function formatCartItemWhen(startIso) {
+        if (!startIso) return '';
+        return new Date(startIso).toLocaleString([], {
+            weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+    }
+
+    function getDiscountedUnitPrice(basePrice, discountAmount) {
+        return Math.max(0, parseFloat(basePrice) - (discountAmount || 0));
+    }
+
+    function computeCartLineUnitPrice(item) {
+        const discount = cartUnitPrices[item.sessionId] != null
+            ? cartUnitPrices[item.sessionId]
+            : cartVerifiedDiscountAmount;
+        return getDiscountedUnitPrice(item.price, discount);
+    }
+
+    function computeCartGrandTotal() {
+        return registrationCart.reduce((sum, item) => {
+            const players = getCartItemPlayerNames(item);
+            const count = Math.max(players.length, 0);
+            if (count === 0) return sum;
+            return sum + computeCartLineUnitPrice(item) * count;
+        }, 0);
+    }
+
+    function renderPlayerNameFields(containerId, names, onChangeCallback) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const values = names && names.length ? names : [''];
+        container.innerHTML = '';
+
+        values.forEach((name, index) => {
+            const row = document.createElement('div');
+            row.className = 'player-name-row';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'player-name-input';
+            input.value = name || '';
+            input.placeholder = index === 0 ? 'Student / player full name' : `Player ${index + 1} full name`;
+            input.addEventListener('input', onChangeCallback);
+
+            row.appendChild(input);
+
+            if (values.length > 1) {
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'player-remove-btn';
+                removeBtn.innerText = '×';
+                removeBtn.setAttribute('aria-label', 'Remove player');
+                removeBtn.onclick = () => removePlayerNameField(containerId, index, onChangeCallback);
+                row.appendChild(removeBtn);
+            }
+
+            container.appendChild(row);
+        });
+    }
+
+    function getPlayerNamesFromList(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('.player-name-input'))
+            .map((input) => input.value.trim())
+            .filter(Boolean);
+    }
+
+    function addPlayerNameField(containerId, onChangeCallback) {
+        if (typeof onChangeCallback === 'string') {
+            const id = onChangeCallback;
+            onChangeCallback = id === 'playerNamesList' ? () => { updateSessionOrderTotal(); validateForm(); } : () => { syncCartItemPlayersFromDOM(); validateCartForm(); };
+        }
+        const names = Array.from(document.querySelectorAll(`#${containerId} .player-name-input`)).map((input) => input.value);
+        names.push('');
+        renderPlayerNameFields(containerId, names, onChangeCallback);
+        onChangeCallback();
+    }
+
+    function removePlayerNameField(containerId, index, onChangeCallback) {
+        const names = Array.from(document.querySelectorAll(`#${containerId} .player-name-input`)).map((input) => input.value);
+        names.splice(index, 1);
+        renderPlayerNameFields(containerId, names.length ? names : [''], onChangeCallback);
+        onChangeCallback();
+    }
+
+    function resetPlayerNameFields(initialName) {
+        renderPlayerNameFields('playerNamesList', [initialName || ''], () => {
+            updateSessionOrderTotal();
+            validateForm();
+        });
+        updateSessionOrderTotal();
+    }
+
+    function updateSessionOrderTotal() {
+        const el = document.getElementById('sessionOrderTotal');
+        if (!el || adminToken) return;
+        const count = Math.max(getPlayerNamesFromList('playerNamesList').length, 1);
+        const unit = currentSessionPrice;
+        const total = unit * count;
+        if (count > 1) {
+            el.textContent = `Total: $${total.toFixed(2)} (${count} players × $${unit.toFixed(2)} each)`;
+        } else if (unit > 0) {
+            el.textContent = `Session total: $${unit.toFixed(2)}`;
+        } else {
+            el.textContent = '';
+        }
+    }
+
+    function syncCartItemPlayersFromDOM() {
+        registrationCart.forEach((item) => {
+            ensureCartItemPlayerShape(item);
+            const container = document.getElementById(`cart-players-${item.sessionId}`);
+            if (!container) {
+                item.playerNames = getCartItemPlayerNames(item);
+                return;
+            }
+
+            const excluded = [];
+            container.querySelectorAll('.cart-child-checkbox').forEach((checkbox) => {
+                if (!checkbox.checked) {
+                    excluded.push(parseInt(checkbox.dataset.childIndex, 10));
+                }
+            });
+            item.excludedChildIndices = excluded;
+            item.playerNames = getCartItemPlayerNames(item);
+        });
+        saveCartToStorage();
+        updateCartOrderTotalDisplay();
+    }
+
+    function updateCartOrderTotalDisplay() {
+        const el = document.getElementById('cartOrderTotal');
+        if (!el) return;
+        const total = computeCartGrandTotal();
+        const playerCount = registrationCart.reduce((sum, item) => {
+            return sum + getCartItemPlayerNames(item).length;
+        }, 0);
+        el.textContent = registrationCart.length
+            ? `Cart total: $${total.toFixed(2)} (${registrationCart.length} session${registrationCart.length === 1 ? '' : 's'}, ${playerCount} player${playerCount === 1 ? '' : 's'})`
+            : '';
+    }
+
+    function renderCartCheckoutUI() {
+        const container = document.getElementById('cartItemsContainer');
+        const emptyMsg = document.getElementById('cartEmptyMessage');
+        const checkoutFields = document.getElementById('cartCheckoutFields');
+        const playerNamesSection = document.getElementById('cartPlayerNamesSection');
+        if (!container) return;
+
+        container.innerHTML = '';
+        const hasItems = registrationCart.length > 0;
+        emptyMsg.style.display = hasItems ? 'none' : 'block';
+        checkoutFields.style.display = hasItems ? 'block' : 'none';
+        if (playerNamesSection) playerNamesSection.style.display = hasItems ? 'block' : 'none';
+
+        registrationCart.forEach((item) => {
+            ensureCartItemPlayerShape(item);
+            const card = document.createElement('div');
+            card.className = 'cart-item-card';
+            card.innerHTML = `
+                <div class="cart-item-header">
+                    <div>
+                        <div class="cart-item-title">${escapeHtml(item.title)}</div>
+                        <div class="cart-item-meta">${escapeHtml(formatCartItemWhen(item.start))}${item.location ? ` · ${escapeHtml(item.location)}` : ''}</div>
+                        <div class="cart-item-meta">$${parseFloat(item.price).toFixed(2)} per player</div>
+                    </div>
+                    <button type="button" class="cart-remove-btn" data-session-id="${escapeHtml(item.sessionId)}">Remove</button>
+                </div>
+                <label style="font-size:12px; font-weight:bold; color:#555;">Players for this session</label>
+                <div id="cart-players-${item.sessionId}" class="cart-item-players" style="margin-top:6px;"></div>
+            `;
+            container.appendChild(card);
+
+            card.querySelector('.cart-remove-btn').onclick = () => removeCartItem(item.sessionId);
+            renderCartItemPlayerCheckboxes(item.sessionId, item);
+        });
+
+        syncCartItemsFromGlobalChildren();
+        updateCartOrderTotalDisplay();
+    }
+
+    function openCartCheckoutModal() {
+        if (adminToken) return;
+
+        registrationCart.forEach((item) => ensureCartItemPlayerShape(item));
+
+        const saved = loadSavedRegistrationDetails();
+        document.getElementById('cartPlayerName1').value = saved.playerName;
+        document.getElementById('cartPlayerName2').value = '';
+        document.getElementById('cartMultipleChildrenCheckbox').checked = false;
+        document.getElementById('cartPlayerName2Wrapper').style.display = 'none';
+        document.getElementById('cartParentName').value = saved.parentName;
+        document.getElementById('cartParentEmail').value = saved.parentEmail;
+        document.getElementById('cartWaiverCheckbox').checked = false;
+        document.getElementById('cartCouponCodeInput').value = '';
+        document.getElementById('cartCouponFeedback').innerText = '';
+        cartVerifiedCouponCode = null;
+        cartVerifiedDiscountAmount = 0;
+        cartUnitPrices = {};
+
+        renderCartCheckoutUI();
+
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('cartCheckoutModal').style.display = 'block';
+
+        if (registrationCart.length && siteConfig.paypal_checkout_enabled && computeCartGrandTotal() > 0) {
+            if (siteConfig.simulate_checkout) {
+                mountSimulatedCartCheckoutButton();
+            } else {
+                injectCartPayPalScript();
+            }
+        }
+        validateCartForm();
+    }
+
+    function mountSimulatedCartCheckoutButton() {
+        document.getElementById('cart-paypal-button-wrapper').style.display = 'block';
+        simulateCartPayRefresh = mountSimulatedCheckoutButton({
+            containerId: 'cart-paypal-button-container',
+            overlayId: 'cartPaypalDisabledOverlay',
+            label: 'Simulate PayPal Checkout — pay for entire cart',
+            getPayload: () => {
+                syncCartItemPlayersFromDOM();
+                return {
+                    cart_items: registrationCart.map((item) => ({
+                        session_id: parseInt(item.sessionId, 10),
+                        player_names: getCartItemPlayerNames(item)
+                    })),
+                    coupon_code: cartVerifiedCouponCode
+                };
+            },
+            onPaid: (orderId) => submitCartBatch(orderId),
+            validateFn: () => validateCartForm()
+        });
+    }
+
+    function applyCartCouponDiscount() {
+        const code = document.getElementById('cartCouponCodeInput').value.trim();
+        const feedback = document.getElementById('cartCouponFeedback');
+        if (!code) return;
+
+        fetch('/api/validate-coupon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                cartVerifiedCouponCode = code.toUpperCase();
+                cartUnitPrices = {};
+                registrationCart.forEach((item) => {
+                    if (data.discount_type === 'fixed') {
+                        cartUnitPrices[item.sessionId] = data.discount_value;
+                    } else if (data.discount_type === 'percent') {
+                        cartUnitPrices[item.sessionId] = item.price * (data.discount_value / 100);
+                    }
+                });
+                cartVerifiedDiscountAmount = 0;
+                feedback.style.color = 'green';
+                feedback.innerText = 'Coupon applied to all cart sessions.';
+                updateCartOrderTotalDisplay();
+                validateCartForm();
+            } else {
+                cartVerifiedCouponCode = null;
+                cartVerifiedDiscountAmount = 0;
+                cartUnitPrices = {};
+                feedback.style.color = 'red';
+                feedback.innerText = data.error || 'Invalid coupon code.';
+                updateCartOrderTotalDisplay();
+                validateCartForm();
+            }
+        });
+    }
+
+    function validateCartForm() {
+        if (adminToken) return false;
+        syncCartItemPlayersFromDOM();
+
+        const parentName = document.getElementById('cartParentName').value.trim();
+        const parentEmail = document.getElementById('cartParentEmail').value.trim();
+        const waiverChecked = document.getElementById('cartWaiverCheckbox').checked;
+        const globalNames = getCartGlobalChildNames();
+        const multipleChildren = document.getElementById('cartMultipleChildrenCheckbox').checked;
+        const globalNamesValid = globalNames.length > 0 && (!multipleChildren || globalNames.length >= 2);
+        const allItemsHavePlayers = registrationCart.every((item) => getCartItemPlayerNames(item).length > 0);
+        const isFormValid = registrationCart.length > 0 && parentName && parentEmail && waiverChecked && globalNamesValid && allItemsHavePlayers;
+
+        const total = computeCartGrandTotal();
+        const checkoutPaused = !siteConfig.paypal_checkout_enabled;
+        const showWaitlistPath = checkoutPaused || total <= 0;
+
+        document.getElementById('cartPaymentsPausedNotice').style.display = checkoutPaused ? 'block' : 'none';
+        document.getElementById('cart-paypal-button-wrapper').style.display = 'none';
+        document.getElementById('cartFreeSubmitBtn').style.display = 'none';
+        document.getElementById('cartWaitlistBtn').style.display = 'none';
+
+        if (!registrationCart.length) return false;
+
+        if (showWaitlistPath) {
+            const waitlistBtn = document.getElementById('cartWaitlistBtn');
+            waitlistBtn.style.display = 'block';
+            waitlistBtn.disabled = !isFormValid;
+            waitlistBtn.innerText = checkoutPaused ? 'Submit All Registrations (Waitlist)' : 'Join Waitlist (Free)';
+        } else if (total <= 0) {
+            const freeBtn = document.getElementById('cartFreeSubmitBtn');
+            freeBtn.style.display = isFormValid ? 'block' : 'none';
+            freeBtn.disabled = !isFormValid;
+        } else {
+            document.getElementById('cart-paypal-button-wrapper').style.display = 'block';
+            if (siteConfig.simulate_checkout) {
+                if (!simulateCartPayRefresh) mountSimulatedCartCheckoutButton();
+                else simulateCartPayRefresh.refresh();
+            } else if (isFormValid) {
+                document.getElementById('cartPaypalDisabledOverlay').style.display = 'none';
+                if (cartPaypalActionsInstance) cartPaypalActionsInstance.enable();
+            } else {
+                document.getElementById('cartPaypalDisabledOverlay').style.display = 'block';
+                if (cartPaypalActionsInstance) cartPaypalActionsInstance.disable();
+            }
+        }
+
+        return isFormValid;
+    }
+
+    function buildCartBatchPayload(orderId) {
+        syncCartItemPlayersFromDOM();
+        return {
+            parent_name: document.getElementById('cartParentName').value.trim(),
+            parent_email: document.getElementById('cartParentEmail').value.trim(),
+            paypal_order_id: orderId,
+            coupon_code: cartVerifiedCouponCode,
+            items: registrationCart.map((item) => ({
+                session_id: parseInt(item.sessionId, 10),
+                player_names: getCartItemPlayerNames(item)
+            }))
+        };
+    }
+
+    function submitCartBatch(orderId) {
+        const total = computeCartGrandTotal();
+        const finalOrderId = total <= 0 ? 'WAIVED_FREE' : orderId;
+        const payload = buildCartBatchPayload(finalOrderId);
+
+        fetch('/api/book/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            saveRegistrationDetails({
+                parentName: payload.parent_name,
+                parentEmail: payload.parent_email,
+                playerName: getCartGlobalChildNames()[0] || ''
+            });
+
+            registrationCart = [];
+            saveCartToStorage();
+
+            closeAllModals();
+            calendar.refetchEvents();
+
+            if (data.status === 'active') {
+                alert(`Registration complete! ${payload.items.length} session(s) confirmed.`);
+            } else if (!siteConfig.paypal_checkout_enabled) {
+                openOfflinePaymentReminderModal();
+            } else {
+                alert('One or more players were placed on a waitlist.');
+            }
+        });
+    }
+
+    function injectCartPayPalScript() {
+        if (!siteConfig.paypal_checkout_enabled) return;
+
+        const renderButtons = () => {
+            document.getElementById('cart-paypal-button-wrapper').style.display = 'block';
+            initializeCartPayPalButtons();
+        };
+
+        if (paypalScriptLoaded && window.paypal) {
+            renderButtons();
+            return;
+        }
+
+        fetch('/api/config/paypal-client-id')
+            .then(res => res.json())
+            .then(config => {
+                if (!config.clientId) return;
+                if (paypalScriptLoaded && window.paypal) {
+                    renderButtons();
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = `https://www.paypal.com/sdk/js?client-id=${config.clientId}&currency=USD`;
+                script.onload = () => {
+                    paypalScriptLoaded = true;
+                    renderButtons();
+                };
+                document.body.appendChild(script);
+            })
+            .catch(err => console.error('Failed to load PayPal for cart:', err));
+    }
+
+    function initializeCartPayPalButtons() {
+        if (!window.paypal) return;
+        document.getElementById('cart-paypal-button-container').innerHTML = '';
+
+        paypal.Buttons({
+            onInit: function(data, actions) {
+                cartPaypalActionsInstance = actions;
+                cartPaypalActionsInstance.disable();
+            },
+            onClick: function() { validateCartForm(); },
+            createOrder: function() {
+                syncCartItemPlayersFromDOM();
+                return requestPayPalOrder({
+                    cart_items: registrationCart.map((item) => ({
+                        session_id: parseInt(item.sessionId, 10),
+                        player_names: getCartItemPlayerNames(item)
+                    })),
+                    coupon_code: cartVerifiedCouponCode
+                });
+            },
+            onApprove: function(data, actions) {
+                return actions.order.capture().then(function(details) {
+                    submitCartBatch(details.id);
+                });
+            },
+            onError: function(err) {
+                console.error('Cart PayPal error:', err);
+                alert('Payment could not be completed. Please try again or contact Coach Ben.');
+            }
+        }).render('#cart-paypal-button-container');
+    }
 
     function loadSavedRegistrationDetails() {
         try {
@@ -1161,18 +2160,22 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
-        const initialType = urlParams.get('type') || 'all';
         const initialSchedule = urlParams.get('schedule') || 'active';
-        updateFilterButtonUI(initialType);
+        updateFilterSelectsUI();
         updateCoachScheduleButtonUI(initialSchedule);
 
         loadSiteConfig().then(() => {
             if (window.SiteBanner) SiteBanner.load({ darkTheme: true });
+            if (adminToken) {
+                applyCoachUIMode(true);
+            } else if (registrationCart.length > 0) {
+                ensureCartAttention();
+            }
         });
 
         initCalendarSubscribeBar();
-        
-        if (adminToken) { applyCoachUIMode(true); }
+        initContactCoachScrollVisibility();
+        loadCartFromStorage();
 
         window.addEventListener('resize', () => {
             if (document.getElementById('bookingModal').style.display === 'block'
@@ -1229,6 +2232,7 @@
             events: function(info, successCallback, failureCallback) {
                 const currentUrlParams = new URLSearchParams(window.location.search);
                 const filterType = currentUrlParams.get('type');
+                const filterLocation = currentUrlParams.get('location');
                 const scheduleFilter = adminToken ? (currentUrlParams.get('schedule') || 'active') : 'active';
                 const deepLinkSessionId = currentUrlParams.get('session_id');
                 let sessionsUrl = '/api/sessions';
@@ -1242,8 +2246,13 @@
                     .then(res => res.json())
                     .then(data => {
                         let filteredData = data;
-                        if (filterType && filterType !== 'all' && !adminToken) {
-                            filteredData = data.filter(session => session.event_type === filterType);
+                        if (!adminToken) {
+                            if (filterType && filterType !== 'all') {
+                                filteredData = filteredData.filter(session => session.event_type === filterType);
+                            }
+                            if (filterLocation) {
+                                filteredData = filteredData.filter(session => session.location === filterLocation);
+                            }
                         }
                         if (adminToken) {
                             if (scheduleFilter === 'active') {
@@ -1307,9 +2316,14 @@
                     });
             },
             eventClick: function(info) { handleEventSelectionSelection(info.event); },
+            dateClick: function(info) {
+                if (adminToken) return;
+                handleCalendarDayClick(info);
+            },
             select: function(info) { if (adminToken) { openCreateSlotModal(info.startStr); } },
             
             datesSet: function() {
+                updateContactCoachScrollVisibility();
                 const urlParams = new URLSearchParams(window.location.search);
                 const queryId = urlParams.get('session_id');
                 if (queryId) {
@@ -1335,6 +2349,125 @@
         if (activeBtn) activeBtn.classList.add('active');
     }
 
+    function applyLiveFilters() {
+        const groupSelect = document.getElementById('liveFilterGroup');
+        const locationSelect = document.getElementById('liveFilterLocation');
+        const group = groupSelect ? groupSelect.value : 'all';
+        const location = locationSelect ? locationSelect.value : 'all';
+
+        const url = new URL(window.location);
+        if (group === 'all') {
+            url.searchParams.delete('type');
+        } else {
+            url.searchParams.set('type', group);
+        }
+        if (location === 'all') {
+            url.searchParams.delete('location');
+        } else {
+            url.searchParams.set('location', location);
+        }
+
+        window.history.pushState({}, '', url);
+        if (calendar) calendar.refetchEvents();
+    }
+
+    function updateFilterSelectsUI() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const group = urlParams.get('type');
+        const location = urlParams.get('location');
+
+        const groupSelect = document.getElementById('liveFilterGroup');
+        if (groupSelect) {
+            groupSelect.value = (group === 'large' || group === 'small') ? group : 'all';
+        }
+
+        const locationSelect = document.getElementById('liveFilterLocation');
+        if (locationSelect) {
+            locationSelect.value = location || 'all';
+        }
+    }
+
+    function initContactCoachScrollVisibility() {
+        window.addEventListener('scroll', updateContactCoachScrollVisibility, { passive: true });
+        window.addEventListener('resize', updateContactCoachScrollVisibility);
+        updateContactCoachScrollVisibility();
+    }
+
+    function updateContactCoachScrollVisibility() {
+        const link = document.getElementById('contactCoachLink');
+        const calendarEl = document.getElementById('calendar');
+        if (!link || !calendarEl || adminToken) return;
+
+        const calendarBottom = calendarEl.offsetTop + calendarEl.offsetHeight;
+        const scrolledPastCalendar = window.scrollY + window.innerHeight > calendarBottom + 8;
+        link.classList.toggle('contact-coach-visible', scrolledPastCalendar);
+    }
+
+    function getEventsForCalendarDay(date) {
+        const dayStart = new Date(date);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(date);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        return calendar.getEvents().filter(event => {
+            if (!event.start) return false;
+            const eventStart = new Date(event.start);
+            return eventStart >= dayStart && eventStart <= dayEnd;
+        }).sort((a, b) => a.start - b.start);
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function handleCalendarDayClick(info) {
+        const dayEvents = getEventsForCalendarDay(info.date);
+        if (dayEvents.length === 0) return;
+        if (dayEvents.length === 1) {
+            handleEventSelectionSelection(dayEvents[0]);
+            return;
+        }
+        openDayEventPickerModal(info.date, dayEvents);
+    }
+
+    function openDayEventPickerModal(date, events) {
+        const dateLabel = date.toLocaleDateString(undefined, {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        document.getElementById('dayPickerSubtitle').innerText = dateLabel;
+
+        const list = document.getElementById('dayPickerEventList');
+        list.innerHTML = '';
+
+        events.forEach(event => {
+            const props = event.extendedProps || {};
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'day-picker-event-btn';
+            const timeText = event.start
+                ? event.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                : '';
+            const title = props.sessionTitle || event.title.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+            const location = props.location || 'Location TBD';
+            btn.innerHTML = `<span class="day-picker-time">${escapeHtml(timeText)}</span>`
+                + `<span class="day-picker-title">${escapeHtml(title)}</span>`
+                + `<span class="day-picker-location">📍 ${escapeHtml(location)}</span>`;
+            btn.onclick = () => {
+                closeAllModals();
+                handleEventSelectionSelection(event);
+            };
+            list.appendChild(btn);
+        });
+
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('dayEventPickerModal').style.display = 'block';
+    }
+
     function applyCoachScheduleFilter(schedule) {
         const url = new URL(window.location);
         if (schedule === 'active') {
@@ -1345,20 +2478,6 @@
         window.history.pushState({}, '', url);
         updateCoachScheduleButtonUI(schedule);
         if (calendar) calendar.refetchEvents();
-    }
-
-    function applyLiveFilter(type) {
-        const url = new URL(window.location);
-        if (type === 'all') { url.searchParams.delete('type'); } else { url.searchParams.set('type', type); }
-        window.history.pushState({}, '', url);
-        updateFilterButtonUI(type);
-        if (calendar) calendar.refetchEvents();
-    }
-
-    function updateFilterButtonUI(activeType) {
-        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.getElementById(`filterBtn-${activeType}`);
-        if (activeBtn) activeBtn.classList.add('active');
     }
 
     function applyCouponDiscount() {
@@ -1381,14 +2500,16 @@
                 currentSessionPrice = Math.max(0, originalPrice - verifiedDiscountAmount);
                 verifiedCouponCode = code.toUpperCase();
                 feedback.style.color = 'green';
-                feedback.innerText = `Coupon applied! Saved $${verifiedDiscountAmount.toFixed(2)}. New total: $${currentSessionPrice.toFixed(2)}`;
-                validateForm(); 
+                feedback.innerText = `Coupon applied! Saved $${verifiedDiscountAmount.toFixed(2)}. New total: $${currentSessionPrice.toFixed(2)} per player`;
+                updateSessionOrderTotal();
+                validateForm();
             } else {
                 feedback.style.color = 'red';
                 feedback.innerText = data.error || "Invalid coupon code.";
                 verifiedDiscountAmount = 0;
                 verifiedCouponCode = null;
                 currentSessionPrice = selectedEvent.extendedProps.price;
+                updateSessionOrderTotal();
                 validateForm();
             }
         });
@@ -1398,7 +2519,7 @@
         if (adminToken) return;
         const parentName = document.getElementById('parentName').value.trim();
         const parentEmail = document.getElementById('parentEmail').value.trim();
-        const playerName = document.getElementById('playerName').value.trim();
+        const playerNames = getPlayerNamesFromList('playerNamesList');
         const waiverChecked = document.getElementById('waiverCheckbox').checked;
 
         let accessPasses = true;
@@ -1407,7 +2528,7 @@
             accessPasses = (inputCode === selectedEvent.extendedProps.access_code);
         }
 
-        const isFormValid = parentName !== "" && parentEmail !== "" && playerName !== "" && waiverChecked && accessPasses;
+        const isFormValid = parentName !== "" && parentEmail !== "" && playerNames.length > 0 && waiverChecked && accessPasses;
         const waitlistBtn = document.getElementById('waitlistBtn');
         waitlistBtn.disabled = !isFormValid;
 
@@ -1432,7 +2553,23 @@
         } else {
             waitlistBtn.style.display = 'none';
             document.getElementById('paypal-button-wrapper').style.display = 'block';
-            if (isFormValid) {
+            if (siteConfig.simulate_checkout) {
+                if (!simulateBookingPayRefresh && selectedEvent) {
+                    simulateBookingPayRefresh = mountSimulatedCheckoutButton({
+                        containerId: 'paypal-button-container',
+                        overlayId: 'paypalDisabledOverlay',
+                        getPayload: () => ({
+                            session_id: selectedEvent.id,
+                            coupon_code: verifiedCouponCode,
+                            player_count: Math.max(getPlayerNamesFromList('playerNamesList').length, 1)
+                        }),
+                        onPaid: (orderId) => submitBooking(orderId),
+                        validateFn: () => validateForm()
+                    });
+                } else if (simulateBookingPayRefresh) {
+                    simulateBookingPayRefresh.refresh();
+                }
+            } else if (isFormValid) {
                 document.getElementById('paypalDisabledOverlay').style.display = 'none';
                 if (paypalActionsInstance) paypalActionsInstance.enable();
             } else {
@@ -1440,6 +2577,7 @@
                 if (paypalActionsInstance) paypalActionsInstance.disable();
             }
         }
+        updateSessionOrderTotal();
     }
 
     function handleEventSelectionSelection(event) {
@@ -1572,7 +2710,7 @@
         const savedDetails = adminToken ? { parentName: '', parentEmail: '', playerName: '' } : loadSavedRegistrationDetails();
         document.getElementById('parentName').value = savedDetails.parentName;
         document.getElementById('parentEmail').value = savedDetails.parentEmail;
-        document.getElementById('playerName').value = savedDetails.playerName;
+        resetPlayerNameFields(savedDetails.playerName);
         document.getElementById('waiverCheckbox').checked = false;
         document.getElementById('couponCodeInput').value = "";
         document.getElementById('couponFeedback').innerText = "";
@@ -1622,6 +2760,8 @@
             document.getElementById('freeSubmitBtn').style.display = 'none';
             document.getElementById('paymentsPausedNotice').style.display = 'none';
 
+            simulateBookingPayRefresh = null;
+
             if (!siteConfig.paypal_checkout_enabled || props.activeCount >= props.maxActive) {
                 document.getElementById('paypal-button-wrapper').style.display = 'none';
             } else if (props.price > 0) {
@@ -1636,6 +2776,7 @@
             .then(res => res.json())
             .then(cfg => {
                 siteConfig = cfg;
+                showSimulateCheckoutBanner();
                 syncCoachSiteSettingsForm();
                 return cfg;
             })
@@ -1708,8 +2849,25 @@
     function injectPayPalScriptDynamic() {
         if (!siteConfig.paypal_checkout_enabled) return;
 
+        document.getElementById('paypal-button-wrapper').style.display = 'block';
+
+        if (siteConfig.simulate_checkout) {
+            simulateBookingPayRefresh = mountSimulatedCheckoutButton({
+                containerId: 'paypal-button-container',
+                overlayId: 'paypalDisabledOverlay',
+                getPayload: () => ({
+                    session_id: selectedEvent.id,
+                    coupon_code: verifiedCouponCode,
+                    player_count: Math.max(getPlayerNamesFromList('playerNamesList').length, 1)
+                }),
+                onPaid: (orderId) => submitBooking(orderId),
+                validateFn: () => validateForm()
+            });
+            return;
+        }
+
         if (paypalScriptLoaded) {
-            document.getElementById('paypal-button-wrapper').style.display = 'block';
+            initializePayPalButtons();
             return;
         }
         
@@ -1763,7 +2921,7 @@
                 : null,
             session_location: props.location || null,
             session_price: currentSessionPrice,
-            player_name: document.getElementById('playerName').value.trim(),
+            player_name: getPlayerNamesFromList('playerNamesList')[0] || '',
             parent_name: document.getElementById('parentName').value.trim(),
             parent_email: document.getElementById('parentEmail').value.trim()
         };
@@ -1805,9 +2963,11 @@
             onInit: function(data, actions) { paypalActionsInstance = actions; paypalActionsInstance.disable(); },
             onClick: function() { validateForm(); },
             createOrder: function() {
+                const playerNames = getPlayerNamesFromList('playerNamesList');
                 return requestPayPalOrder({
                     session_id: selectedEvent.id,
-                    coupon_code: verifiedCouponCode
+                    coupon_code: verifiedCouponCode,
+                    player_count: Math.max(playerNames.length, 1)
                 });
             },
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
@@ -1826,11 +2986,14 @@
     }
 
     function submitBooking(orderId) {
-        const finalOrderId = (currentSessionPrice <= 0) ? 'WAIVED_FREE' : orderId;
+        const playerNames = getPlayerNamesFromList('playerNamesList');
+        const unitTotal = currentSessionPrice;
+        const grandTotal = unitTotal * Math.max(playerNames.length, 1);
+        const finalOrderId = (grandTotal <= 0) ? 'WAIVED_FREE' : orderId;
 
         const payload = {
             session_id: selectedEvent.id,
-            player_name: document.getElementById('playerName').value.trim(),
+            player_names: playerNames,
             parent_email: document.getElementById('parentEmail').value.trim(),
             parent_name: document.getElementById('parentName').value.trim(),
             paypal_order_id: finalOrderId,
@@ -1849,7 +3012,9 @@
             saveRegistrationDetails(payload);
             if (data.status === 'active') {
                 closeAllModals();
-                alert('Spot confirmed!');
+                alert(playerNames.length > 1
+                    ? `${playerNames.length} players confirmed for this session!`
+                    : 'Spot confirmed!');
                 calendar.refetchEvents();
             } else if (!siteConfig.paypal_checkout_enabled) {
                 closeAllModals();
@@ -2358,22 +3523,26 @@
 
     function applyCoachUIMode(isActive) {
         document.documentElement.classList.toggle('coach-mode', isActive);
+        const authBtn = document.getElementById('authBtn');
         if (isActive) {
             document.getElementById('adminBadge').style.display = 'inline-block';
-            document.getElementById('authBtn').innerText = "Logout";
+            authBtn.innerText = siteConfig.simulate_coach_login ? 'Switch to Customer View' : 'Logout';
             document.getElementById('manageCouponsBtn').style.display = 'inline-block';
             document.getElementById('contactCoachLink').style.display = 'none';
+            document.getElementById('contactCoachLink').classList.remove('contact-coach-visible');
             document.getElementById('calendarSubscribeBar').style.display = 'none';
             document.getElementById('filterBar').style.display = 'none';
             document.getElementById('coachScheduleFilter').style.display = 'flex';
             document.getElementById('linkOpsDashboard').style.display = 'inline-block';
             document.getElementById('linkRefundsCenter').style.display = 'inline-block';
+            stopCartAttention();
             updateCoachScheduleButtonUI(new URLSearchParams(window.location.search).get('schedule') || 'active');
         } else {
             document.getElementById('adminBadge').style.display = 'none';
-            document.getElementById('authBtn').innerText = "Coach Portal";
+            authBtn.innerText = siteConfig.simulate_coach_login ? 'Switch to Coach View' : 'Coach Portal';
             document.getElementById('manageCouponsBtn').style.display = 'none';
-            document.getElementById('contactCoachLink').style.display = 'inline-block';
+            document.getElementById('contactCoachLink').style.display = '';
+            updateContactCoachScrollVisibility();
             document.getElementById('calendarSubscribeBar').style.display = 'flex';
             document.getElementById('filterBar').style.display = 'flex';
             document.getElementById('coachScheduleFilter').style.display = 'none';
@@ -2382,6 +3551,7 @@
             const url = new URL(window.location);
             url.searchParams.delete('schedule');
             window.history.replaceState({}, '', url);
+            if (registrationCart.length > 0) ensureCartAttention();
         }
     }
 
@@ -2393,36 +3563,54 @@
     }
 
     async function toggleAuthField() {
-        if(adminToken) {
-            if (!(await coachConfirm('Log out of Coach Portal?'))) return;
+        if (adminToken) {
+            if (!siteConfig.simulate_coach_login && !(await coachConfirm('Log out of Coach Portal?'))) return;
             adminToken = null;
-            localStorage.removeItem('coach_admin_token'); 
+            localStorage.removeItem('coach_admin_token');
             applyCoachUIMode(false);
-            alert("Logged out.");
-            calendar.refetchEvents(); 
+            if (!siteConfig.simulate_coach_login) alert("Logged out.");
+            calendar.refetchEvents();
+        } else if (siteConfig.simulate_coach_login) {
+            await loginAsCoach();
         } else {
             document.getElementById('overlay').style.display = 'block';
             document.getElementById('loginModal').style.display = 'block';
         }
     }
-    
-    function submitLogin() {
-        fetch('/api/admin/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: document.getElementById('adminUser').value, password: document.getElementById('adminPass').value })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if(data.success) {
+
+    async function loginAsCoach() {
+        const payload = siteConfig.simulate_coach_login
+            ? { username: 'coach', password: 'simulate' }
+            : {
+                username: document.getElementById('adminUser').value,
+                password: document.getElementById('adminPass').value
+            };
+
+        try {
+            const res = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
                 adminToken = data.token;
-                localStorage.setItem('coach_admin_token', data.token); 
+                localStorage.setItem('coach_admin_token', data.token);
                 applyCoachUIMode(true);
-                loadSiteConfig().then(() => syncCoachSiteSettingsForm());
+                await loadSiteConfig();
+                syncCoachSiteSettingsForm();
                 closeAllModals();
-                calendar.refetchEvents(); 
-            } else { alert("Authorization failed."); }
-        });
+                calendar.refetchEvents();
+            } else {
+                alert(data.error || 'Authorization failed.');
+            }
+        } catch (err) {
+            alert('Unable to reach login service.');
+        }
+    }
+
+    function submitLogin() {
+        loginAsCoach();
     }
     
     // ── Refund Modal ──────────────────────────────────────────────────────────
@@ -2521,6 +3709,8 @@
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';
         document.getElementById('eventOverviewModal').style.display = 'none';
+        document.getElementById('dayEventPickerModal').style.display = 'none';
+        document.getElementById('cartCheckoutModal').style.display = 'none';
         document.getElementById('bookingModal').style.display = 'none';
         document.getElementById('bookingModal').classList.remove('modal-coach-desktop');
         document.getElementById('createSlotModal').style.display = 'none';
