@@ -1333,14 +1333,14 @@
     <p style="font-size: 13px; color: #666; margin-top: -8px;">Review your sessions, assign players, and complete one checkout.</p>
 
     <div id="cartPlayerNamesSection" class="cart-player-names-section" style="display:none;">
-        <div class="input-group"><label>Student / Player Full Name *</label><input type="text" id="cartPlayerName1" placeholder="Student / player full name" oninput="onCartGlobalPlayersChange()"></div>
+        <div class="input-group"><label>Student / Player Full Name *</label><input type="text" id="cartPlayerName1" placeholder="Student / player full name" oninput="onCartGlobalPlayersChange()" onblur="persistCartState()"></div>
         <div class="waiver-checkbox-group" style="margin-bottom: 10px;">
             <input type="checkbox" id="cartMultipleChildrenCheckbox" onchange="onCartMultipleChildrenToggle()">
             <label for="cartMultipleChildrenCheckbox">I have more than one child</label>
         </div>
         <div class="input-group" id="cartPlayerName2Wrapper" style="display:none;">
             <label>Second Player Full Name *</label>
-            <input type="text" id="cartPlayerName2" placeholder="Second player full name" oninput="onCartGlobalPlayersChange()">
+            <input type="text" id="cartPlayerName2" placeholder="Second player full name" oninput="onCartGlobalPlayersChange()" onblur="persistCartState()">
         </div>
     </div>
 
@@ -1426,6 +1426,9 @@
 
     let registrationCart = [];
     let cartPaypalActionsInstance = null;
+    let cartPayPalButtonsMounted = false;
+    let cartPayPalInjectInFlight = false;
+    let cartPersistTimer = null;
     let cartVerifiedCouponCode = null;
     let cartVerifiedDiscountAmount = 0;
     let cartUnitPrices = {};
@@ -1494,7 +1497,7 @@
         updateCartBadge();
     }
 
-    function saveCartToStorage() {
+    function persistCartState() {
         try {
             localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(registrationCart));
         } catch (e) {
@@ -1502,6 +1505,18 @@
         }
         updateCartBadge();
         applyCartVisualsToCalendar();
+    }
+
+    function scheduleCartPersist() {
+        if (cartPersistTimer) clearTimeout(cartPersistTimer);
+        cartPersistTimer = setTimeout(() => {
+            cartPersistTimer = null;
+            persistCartState();
+        }, 400);
+    }
+
+    function saveCartToStorage() {
+        persistCartState();
     }
 
     function isSessionInCart(sessionId) {
@@ -1643,14 +1658,19 @@
             .filter(Boolean);
     }
 
-    function syncCartItemsFromGlobalChildren() {
+    function syncCartItemsFromGlobalChildren(options = {}) {
+        const { persist = true } = options;
         registrationCart.forEach((item) => {
             ensureCartItemPlayerShape(item);
             const globalNames = getCartGlobalChildNames();
             item.excludedChildIndices = item.excludedChildIndices.filter((index) => index < globalNames.length);
             item.playerNames = getCartItemPlayerNames(item);
         });
-        saveCartToStorage();
+        if (persist) {
+            saveCartToStorage();
+        } else {
+            scheduleCartPersist();
+        }
         updateCartOrderTotalDisplay();
     }
 
@@ -1668,11 +1688,40 @@
     }
 
     function onCartGlobalPlayersChange() {
-        syncCartItemsFromGlobalChildren();
+        syncCartItemsFromGlobalChildren({ persist: false });
         registrationCart.forEach((item) => {
-            renderCartItemPlayerCheckboxes(item.sessionId, item);
+            updateCartItemPlayerCheckboxes(item.sessionId, item);
         });
         validateCartForm();
+    }
+
+    function updateCartItemPlayerCheckboxes(sessionId, item) {
+        const container = document.getElementById(`cart-players-${sessionId}`);
+        if (!container) return;
+
+        ensureCartItemPlayerShape(item);
+        const globalNames = getCartGlobalChildNames();
+        const excluded = item.excludedChildIndices || [];
+
+        if (!globalNames.length) {
+            if (!container.querySelector('.cart-child-checkbox')) {
+                container.innerHTML = '<p style="font-size:12px; color:#888; margin:0;">Enter player name(s) above to assign to this session.</p>';
+            }
+            return;
+        }
+
+        const existingRows = container.querySelectorAll('.cart-child-checkbox-row');
+        if (existingRows.length === globalNames.length) {
+            existingRows.forEach((row, index) => {
+                const checkbox = row.querySelector('.cart-child-checkbox');
+                const labelText = row.querySelector('span');
+                if (checkbox) checkbox.checked = !excluded.includes(index);
+                if (labelText) labelText.textContent = globalNames[index];
+            });
+            return;
+        }
+
+        renderCartItemPlayerCheckboxes(sessionId, item);
     }
 
     function renderCartItemPlayerCheckboxes(sessionId, item) {
@@ -2050,8 +2099,24 @@
         if (siteConfig.simulate_checkout) {
             if (!simulateCartPayRefresh) mountSimulatedCartCheckoutButton();
             else simulateCartPayRefresh.refresh();
-        } else if (!cartPaypalActionsInstance) {
+        } else if (!cartPayPalButtonsMounted && !cartPayPalInjectInFlight) {
             injectCartPayPalScript();
+        }
+    }
+
+    function updateCartPayPalButtonState(isFormValid) {
+        const overlay = document.getElementById('cartPaypalDisabledOverlay');
+        if (!overlay) return;
+        if (!cartPaypalActionsInstance) {
+            overlay.style.display = isFormValid ? 'none' : 'block';
+            return;
+        }
+        if (isFormValid) {
+            overlay.style.display = 'none';
+            cartPaypalActionsInstance.enable();
+        } else {
+            overlay.style.display = 'block';
+            cartPaypalActionsInstance.disable();
         }
     }
 
@@ -2095,11 +2160,9 @@
                 const overlay = document.getElementById('cartPaypalDisabledOverlay');
                 if (overlay) overlay.style.display = 'none';
             } else if (isFormValid) {
-                document.getElementById('cartPaypalDisabledOverlay').style.display = 'none';
-                if (cartPaypalActionsInstance) cartPaypalActionsInstance.enable();
+                updateCartPayPalButtonState(true);
             } else {
-                document.getElementById('cartPaypalDisabledOverlay').style.display = 'block';
-                if (cartPaypalActionsInstance) cartPaypalActionsInstance.disable();
+                updateCartPayPalButtonState(false);
             }
         }
 
@@ -2160,7 +2223,8 @@
     }
 
     function injectCartPayPalScript() {
-        if (!siteConfig.paypal_checkout_enabled) return;
+        if (!siteConfig.paypal_checkout_enabled || cartPayPalButtonsMounted || cartPayPalInjectInFlight) return;
+        cartPayPalInjectInFlight = true;
 
         const renderButtons = () => {
             document.getElementById('cart-paypal-button-wrapper').style.display = 'block';
@@ -2175,7 +2239,10 @@
         fetch('/api/config/paypal-client-id')
             .then(res => res.json())
             .then(config => {
-                if (!config.clientId) return;
+                if (!config.clientId) {
+                    cartPayPalInjectInFlight = false;
+                    return;
+                }
                 if (paypalScriptLoaded && window.paypal) {
                     renderButtons();
                     return;
@@ -2186,23 +2253,32 @@
                     paypalScriptLoaded = true;
                     renderButtons();
                 };
+                script.onerror = () => {
+                    cartPayPalInjectInFlight = false;
+                };
                 document.body.appendChild(script);
             })
-            .catch(err => console.error('Failed to load PayPal for cart:', err));
+            .catch(err => {
+                cartPayPalInjectInFlight = false;
+                console.error('Failed to load PayPal for cart:', err);
+            });
     }
 
     function initializeCartPayPalButtons() {
-        if (!window.paypal) return;
+        if (!window.paypal || cartPayPalButtonsMounted) return;
+        cartPayPalButtonsMounted = true;
+        cartPayPalInjectInFlight = false;
         document.getElementById('cart-paypal-button-container').innerHTML = '';
 
         paypal.Buttons({
             onInit: function(data, actions) {
                 cartPaypalActionsInstance = actions;
-                cartPaypalActionsInstance.disable();
+                updateCartPayPalButtonState(validateCartForm());
             },
             onClick: function() { validateCartForm(); },
             createOrder: function() {
                 syncCartItemPlayersFromDOM();
+                persistCartState();
                 return requestPayPalOrder({
                     cart_items: registrationCart.map((item) => ({
                         session_id: parseInt(item.sessionId, 10),
@@ -2221,7 +2297,6 @@
                 alert('Payment could not be completed. Please try again or contact Coach Ben.');
             }
         }).render('#cart-paypal-button-container');
-        validateCartForm();
     }
 
     function loadSavedRegistrationDetails() {
@@ -3880,6 +3955,11 @@
     }
 
     function closeAllModals() {
+        if (cartPersistTimer) {
+            clearTimeout(cartPersistTimer);
+            cartPersistTimer = null;
+            persistCartState();
+        }
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('loginModal').style.display = 'none';
         document.getElementById('eventOverviewModal').style.display = 'none';
