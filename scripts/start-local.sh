@@ -30,6 +30,7 @@ echo "Starting server (coach user: ${ADMIN_USER:-coach})"
 echo "ADMIN_PASS length: ${#ADMIN_PASS}"
 echo "JWT_SECRET length: ${#JWT_SECRET}"
 echo "Open http://localhost:3000/calendar.html"
+echo "(This terminal will stay open while the server runs — that is normal. Press Ctrl+C to stop.)"
 echo ""
 
 npm start

@@ -15,6 +15,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 db.serialize(() => {
+    db.run('PRAGMA journal_mode = WAL');
+    db.run('PRAGMA busy_timeout = 5000');
     // 1. Master Sessions Table Configuration (Updated to include location tracking field)
     db.run(`CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

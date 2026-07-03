@@ -112,7 +112,11 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
 
 if (EMAIL_USER && EMAIL_PASS) {
     console.log(`Email transport configured: host=${EMAIL_HOST} port=${EMAIL_PORT} secure=${EMAIL_SECURE} user=${EMAIL_USER} replyTo=${CONTACT_EMAIL}`);
+    const emailVerifyTimer = setTimeout(() => {
+        console.warn('[WARN] Email SMTP verification is taking longer than expected — server is still running.');
+    }, 8000);
     transporter.verify((error) => {
+        clearTimeout(emailVerifyTimer);
         if (error) console.warn("[WARN] Email broadcast engine configuration failed verification:", error.message);
         else console.log("Email broadcast engine successfully connected and authenticated to SMTP host.");
     });
@@ -2716,11 +2720,21 @@ async function promoteNextWaitlistPlayer(sessionId, optionalResContext, options 
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Secure Server executing smoothly on network port ${PORT}`);
+    console.log(`Open http://localhost:${PORT}/calendar.html`);
     if (isSimulatePayPalCheckoutEnabled()) {
         console.log('[SIMULATE] PayPal checkout simulation is ON — no real PayPal API calls will be made.');
         console.log('[SIMULATE] Coach login simulation is ON — use the view toggle with no password.');
         console.log('[SIMULATE] Use the purple "Simulate PayPal Checkout" buttons in the calendar UI.');
     }
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n[ERROR] Port ${PORT} is already in use.`);
+        console.error(`Stop the other process, then restart:\n  kill $(lsof -t -i :${PORT}) && ./scripts/start-local.sh\n`);
+        process.exit(1);
+    }
+    throw err;
 });

@@ -21,8 +21,35 @@
         .waiver-checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 20px; font-size: 13px; font-weight: bold; }
         .waiver-checkbox-group input { margin-top: 3px; cursor: pointer; }
 
-        #paypal-button-wrapper { position: relative; margin-top: 15px; }
-        .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; background: rgba(255,255,255,0.1); }
+        #paypal-button-wrapper { position: relative; margin-top: 15px; min-height: 48px; }
+        #paypal-button-wrapper.paypal-payment-locked #paypal-button-container {
+            opacity: 0.45;
+            filter: grayscale(1);
+            pointer-events: none;
+        }
+        .paypal-disabled-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            cursor: not-allowed;
+            display: block;
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 4px;
+        }
+        .paypal-waiver-gate-notice {
+            font-size: 13px;
+            color: #64748b;
+            margin: 8px 0 0;
+            padding: 10px 12px;
+            background: #f1f5f9;
+            border: 1px dashed #cbd5e1;
+            border-radius: 6px;
+            text-align: center;
+            line-height: 1.45;
+        }
         #paymentsPausedNotice { display: none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 12px; }
         #paymentsPausedNotice a { color: #0070ba; font-weight: bold; }
         
@@ -90,7 +117,9 @@
             <label for="waiverCheckbox">I have read, understood, and agree to the Waiver & Release terms.</label>
         </div>
 
-        <div id="paypal-button-wrapper">
+        <p id="paypalWaiverGateNotice" class="paypal-waiver-gate-notice">Check the waiver agreement above to enable PayPal checkout.</p>
+
+        <div id="paypal-button-wrapper" style="display:none;">
             <div id="paypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please accept the liability waiver terms to unlock checkout.')"></div>
             <div id="paypal-button-container"></div>
         </div>
@@ -125,6 +154,7 @@
     
     let targetRecordData = null;
     let paypalActionsInstance = null;
+    let paypalButtonsMounted = false;
     let siteConfig = { paypal_checkout_enabled: true };
 
     const locationAddressMap = {
@@ -208,23 +238,38 @@
 
         if (!siteConfig.paypal_checkout_enabled) {
             document.getElementById('paypal-button-wrapper').style.display = 'none';
+            document.getElementById('paypalWaiverGateNotice').style.display = 'none';
             document.getElementById('paymentsPausedNotice').style.display = 'block';
             return;
         }
 
         document.getElementById('paymentsPausedNotice').style.display = 'none';
-        document.getElementById('paypal-button-wrapper').style.display = 'block';
-        initializePaypalButtons();
+        document.getElementById('paypal-button-wrapper').style.display = 'none';
+        document.getElementById('paypalWaiverGateNotice').style.display = 'block';
     }
 
     function togglePaypalState() {
         if (!siteConfig.paypal_checkout_enabled) return;
         const waiverChecked = document.getElementById('waiverCheckbox').checked;
+        const wrapper = document.getElementById('paypal-button-wrapper');
+        const gateNotice = document.getElementById('paypalWaiverGateNotice');
+        const overlay = document.getElementById('paypalDisabledOverlay');
+
         if (waiverChecked) {
-            document.getElementById('paypalDisabledOverlay').style.display = 'none';
+            gateNotice.style.display = 'none';
+            wrapper.style.display = 'block';
+            wrapper.classList.remove('paypal-payment-locked');
+            if (!paypalButtonsMounted) {
+                initializePaypalButtons();
+            } else if (overlay) {
+                overlay.style.display = 'none';
+            }
             if (paypalActionsInstance) paypalActionsInstance.enable();
         } else {
-            document.getElementById('paypalDisabledOverlay').style.display = 'block';
+            gateNotice.style.display = 'block';
+            wrapper.style.display = 'none';
+            wrapper.classList.add('paypal-payment-locked');
+            if (overlay) overlay.style.display = 'block';
             if (paypalActionsInstance) paypalActionsInstance.disable();
         }
     }
@@ -274,14 +319,17 @@
     }
 
     function initializePaypalButtons() {
-        if (!window.paypal) return;
+        if (!window.paypal || paypalButtonsMounted) return;
+        paypalButtonsMounted = true;
         paypal.Buttons({
             onInit: function(data, actions) {
                 paypalActionsInstance = actions;
-                paypalActionsInstance.disable();
+                togglePaypalState();
             },
             onClick: function() {
-                togglePaypalState();
+                if (!document.getElementById('waiverCheckbox').checked) {
+                    alert('Please accept the liability waiver terms to unlock checkout.');
+                }
             },
             createOrder: function() {
                 return requestPayPalOrder({
