@@ -636,7 +636,11 @@
         .details-summary-label { color: #64748b; font-weight: bold; }
         .details-summary-value { font-weight: bold; color: #1e293b; text-align: right; }
         
-        #paypal-button-wrapper { position: relative; }
+        #paypal-button-wrapper,
+        #cart-paypal-button-wrapper {
+            position: relative;
+            min-height: 48px;
+        }
         .paypal-disabled-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; cursor: not-allowed; display: block; }
         #paymentsPausedNotice { display: none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 10px; }
         #paymentsPausedNotice a { color: #0070ba; font-weight: bold; }
@@ -1400,7 +1404,7 @@
         </div>
 
         <div id="cart-paypal-button-wrapper">
-            <div id="cartPaypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alertCartFormIncomplete()"></div>
+            <div id="cartPaypalDisabledOverlay" class="paypal-disabled-overlay" aria-hidden="true"></div>
             <div id="cart-paypal-button-container"></div>
         </div>
 
@@ -1486,7 +1490,7 @@
 
         btn.onclick = async () => {
             if (validateFn && !validateFn()) {
-                alert('Please complete all required fields first.');
+                alertCartFormIncomplete();
                 return;
             }
             btn.disabled = true;
@@ -2300,7 +2304,11 @@
                 cartPaypalActionsInstance = actions;
                 updateCartPayPalButtonState(validateCartForm());
             },
-            onClick: function() { validateCartForm(); },
+            onClick: function() {
+                if (!validateCartForm()) {
+                    alertCartFormIncomplete();
+                }
+            },
             createOrder: function() {
                 syncCartItemPlayersFromDOM();
                 persistCartState();
