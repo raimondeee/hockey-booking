@@ -229,6 +229,15 @@
             -webkit-box-orient: vertical;
         }
 
+        #calendar .fc-event-in-cart {
+            opacity: 0.92;
+        }
+
+        #calendar .fc-event-in-cart .fc-event-stacked-title {
+            font-style: italic;
+            opacity: 0.9;
+        }
+
         #calendar .fc-daygrid-block-event,
         #calendar .fc-h-event {
             min-height: 2.6em;
@@ -615,12 +624,35 @@
         #paymentsPausedNotice { display: none; background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.45; margin-top: 10px; }
         #paymentsPausedNotice a { color: #0070ba; font-weight: bold; }
 
-        #contactCoachLink, #manageCouponsBtn, #linkOpsDashboard {
+        #contactCoachLink, #manageCouponsBtn, #linkOpsDashboard, #linkRefundsCenter {
             font-size: 14px; 
             font-weight: bold; 
             font-family: sans-serif;
             white-space: nowrap;
             text-decoration: none;
+        }
+
+        .coach-footer-nav {
+            display: none;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .coach-footer-btn {
+            display: none;
+            background: #343a40;
+            color: #fff;
+            border: 1px solid #212529;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 14px;
+            font-weight: bold;
+            font-family: sans-serif;
+            cursor: pointer;
+            text-align: center;
+            box-sizing: border-box;
         }
         
         #contactCoachLink { color: #aaaaaa; padding: 5px 0; display: none; }
@@ -881,10 +913,27 @@
                 min-height: 44px;
                 box-sizing: border-box;
             }
-            #manageCouponsBtn { margin-right: 0 !important; padding: 10px 16px !important; }
-            #contactCoachLink, #manageCouponsBtn { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(18, 18, 18, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); border: 1px solid #1a1a1a; z-index: 998; }
-            #manageCouponsBtn { background: #343a40 !important; color: #fff !important; border-color: #212529 !important; }
-            .admin-badge { position: fixed; bottom: 64px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
+            #contactCoachLink { position: fixed; bottom: 16px; left: 16px; margin-left: 0; background: rgba(18, 18, 18, 0.95); padding: 10px 16px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); border: 1px solid #1a1a1a; z-index: 998; }
+            html.coach-mode #manageCouponsBtn { display: none !important; }
+            html.coach-mode .coach-footer-nav {
+                flex-direction: column;
+                align-items: stretch;
+                width: 100%;
+                margin-left: 0;
+                gap: 10px;
+            }
+            html.coach-mode .coach-footer-nav a,
+            html.coach-mode .coach-footer-btn {
+                width: 100%;
+                text-align: center;
+                margin-left: 0 !important;
+            }
+            html.coach-mode .coach-footer-btn { display: block; }
+            html.coach-mode .calendar-footer-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .admin-badge { position: fixed; bottom: 16px; left: 16px; margin-right: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 998; }
             .filter-controls { flex-wrap: wrap; padding: 10px; }
             .filter-bar-controls { width: 100%; margin-left: 0; gap: 10px; }
             .filter-dropdown-label { flex: 1 1 100%; }
@@ -966,8 +1015,11 @@
 
 <div class="calendar-footer-row">
     <a href="mailto:ben@benstadeyhockey.com?subject=Schedule Inquiry" id="contactCoachLink" target="_blank">✉ Contact Coach</a>
-    <a href="/dashboard.html" id="linkOpsDashboard" style="display: none; color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 Operations Dashboard →</a>
-    <a href="/refunds.html" id="linkRefundsCenter" style="display: none; color: #17a2b8; background: #fff; padding: 6px 12px; border: 1px solid #17a2b8; border-radius: 4px; margin-left: 8px;">💸 PayPal Refunds Center →</a>
+    <div id="coachFooterNav" class="coach-footer-nav">
+        <a href="/dashboard.html" id="linkOpsDashboard" style="color: #0070ba; background: #fff; padding: 6px 12px; border: 1px solid #0070ba; border-radius: 4px;">📈 Operations Dashboard →</a>
+        <button type="button" id="manageCouponsBtnFooter" class="coach-footer-btn" onclick="openCouponModal()">🎟️ Manage Coupons</button>
+        <a href="/refunds.html" id="linkRefundsCenter" style="color: #17a2b8; background: #fff; padding: 6px 12px; border: 1px solid #17a2b8; border-radius: 4px;">💸 Refunds →</a>
+    </div>
 </div>
 
 <div class="modal-overlay" id="overlay" onclick="handleOverlayClick()"></div>
@@ -1323,7 +1375,7 @@
         </div>
 
         <div id="cart-paypal-button-wrapper">
-            <div id="cartPaypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alert('Please complete all fields to unlock payment.')"></div>
+            <div id="cartPaypalDisabledOverlay" class="paypal-disabled-overlay" onclick="alertCartFormIncomplete()"></div>
             <div id="cart-paypal-button-container"></div>
         </div>
 
@@ -1362,6 +1414,8 @@
         red: { bg: '#c62828', border: '#8e0000', fullBg: '#6d2828', fullBorder: '#4a1a1a' },
         green: { bg: '#2e7d32', border: '#1b5e20', fullBg: '#3d5240', fullBorder: '#2d3b2f' }
     };
+
+    const CART_EVENT_STYLE = { bg: '#9ca3af', border: '#6b7280' };
 
     const VALID_EVENT_COLORS = ['blue', 'red', 'green'];
     const SAVED_REGISTRATION_KEY = 'bsh_saved_registration_details';
@@ -1447,6 +1501,53 @@
             console.warn('Unable to save cart:', e);
         }
         updateCartBadge();
+        applyCartVisualsToCalendar();
+    }
+
+    function isSessionInCart(sessionId) {
+        const id = String(sessionId);
+        return registrationCart.some((item) => item.sessionId === id);
+    }
+
+    function getParentEventColors(event) {
+        const props = event.extendedProps || {};
+        const checkoutPaused = !siteConfig.paypal_checkout_enabled;
+        const isFull = checkoutPaused
+            ? props.waitlistCount >= props.maxWaitlist
+            : props.activeCount >= props.maxActive;
+        const now = new Date();
+        return resolveEventColors(
+            { event_color: props.event_color || 'blue' },
+            props.isCancelled,
+            isFull,
+            event.start,
+            event.end,
+            now
+        );
+    }
+
+    function applyCartVisualsToCalendar() {
+        if (!calendar || adminToken) return;
+
+        const cartIds = new Set(registrationCart.map((item) => String(item.sessionId)));
+
+        calendar.getEvents().forEach((event) => {
+            const props = event.extendedProps || {};
+            const inCart = cartIds.has(String(event.id));
+
+            if (inCart) {
+                event.setProp('backgroundColor', CART_EVENT_STYLE.bg);
+                event.setProp('borderColor', CART_EVENT_STYLE.border);
+                event.setProp('classNames', ['fc-event-in-cart']);
+                event.setExtendedProp('inCart', true);
+            } else if (props.inCart) {
+                const { bg, border } = getParentEventColors(event);
+                event.setProp('backgroundColor', bg);
+                event.setProp('borderColor', border);
+                event.setProp('classNames', []);
+                event.setExtendedProp('inCart', false);
+            }
+        });
     }
 
     function updateCartBadge() {
@@ -1823,15 +1924,6 @@
         registrationCart.forEach((item) => ensureCartItemPlayerShape(item));
 
         const saved = loadSavedRegistrationDetails();
-        document.getElementById('cartPlayerName1').value = saved.playerName;
-        document.getElementById('cartPlayerName2').value = '';
-        document.getElementById('cartMultipleChildrenCheckbox').checked = false;
-        document.getElementById('cartPlayerName2Wrapper').style.display = 'none';
-        document.getElementById('cartParentName').value = saved.parentName;
-        document.getElementById('cartParentEmail').value = saved.parentEmail;
-        document.getElementById('cartWaiverCheckbox').checked = false;
-        document.getElementById('cartCouponCodeInput').value = '';
-        document.getElementById('cartCouponFeedback').innerText = '';
         cartVerifiedCouponCode = null;
         cartVerifiedDiscountAmount = 0;
         cartUnitPrices = {};
@@ -1841,14 +1933,17 @@
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('cartCheckoutModal').style.display = 'block';
 
-        if (registrationCart.length && siteConfig.paypal_checkout_enabled && computeCartGrandTotal() > 0) {
-            if (siteConfig.simulate_checkout) {
-                mountSimulatedCartCheckoutButton();
-            } else {
-                injectCartPayPalScript();
-            }
-        }
-        validateCartForm();
+        document.getElementById('cartPlayerName1').value = saved.playerName;
+        document.getElementById('cartPlayerName2').value = '';
+        document.getElementById('cartMultipleChildrenCheckbox').checked = false;
+        document.getElementById('cartPlayerName2Wrapper').style.display = 'none';
+        document.getElementById('cartParentName').value = saved.parentName;
+        document.getElementById('cartParentEmail').value = saved.parentEmail;
+        document.getElementById('cartWaiverCheckbox').checked = false;
+        document.getElementById('cartCouponCodeInput').value = '';
+        document.getElementById('cartCouponFeedback').innerText = '';
+
+        onCartGlobalPlayersChange();
     }
 
     function mountSimulatedCartCheckoutButton() {
@@ -1911,6 +2006,55 @@
         });
     }
 
+    function getCartFormMissingFields() {
+        const missing = [];
+        if (!document.getElementById('cartParentName').value.trim()) {
+            missing.push('Parent/Guardian full name');
+        }
+        if (!document.getElementById('cartParentEmail').value.trim()) {
+            missing.push('Parent email');
+        }
+
+        const globalNames = getCartGlobalChildNames();
+        const multipleChildren = document.getElementById('cartMultipleChildrenCheckbox').checked;
+        if (!globalNames.length) {
+            missing.push('Student / player full name');
+        } else if (multipleChildren && globalNames.length < 2) {
+            missing.push('Second player full name');
+        }
+
+        if (!document.getElementById('cartWaiverCheckbox').checked) {
+            missing.push('Waiver agreement checkbox');
+        }
+
+        registrationCart.forEach((item) => {
+            if (getCartItemPlayerNames(item).length === 0) {
+                missing.push(`At least one player checked for "${item.title}"`);
+            }
+        });
+
+        return missing;
+    }
+
+    function alertCartFormIncomplete() {
+        const missing = getCartFormMissingFields();
+        if (missing.length) {
+            alert('Please complete the following before checkout:\n\n• ' + missing.join('\n• '));
+            return;
+        }
+        alert('Payment is still loading — please wait a moment and try again.');
+    }
+
+    function ensureCartPaymentReady() {
+        if (!siteConfig.paypal_checkout_enabled || computeCartGrandTotal() <= 0) return;
+        if (siteConfig.simulate_checkout) {
+            if (!simulateCartPayRefresh) mountSimulatedCartCheckoutButton();
+            else simulateCartPayRefresh.refresh();
+        } else if (!cartPaypalActionsInstance) {
+            injectCartPayPalScript();
+        }
+    }
+
     function validateCartForm() {
         if (adminToken) return false;
         syncCartItemPlayersFromDOM();
@@ -1946,9 +2090,10 @@
             freeBtn.disabled = !isFormValid;
         } else {
             document.getElementById('cart-paypal-button-wrapper').style.display = 'block';
+            ensureCartPaymentReady();
             if (siteConfig.simulate_checkout) {
-                if (!simulateCartPayRefresh) mountSimulatedCartCheckoutButton();
-                else simulateCartPayRefresh.refresh();
+                const overlay = document.getElementById('cartPaypalDisabledOverlay');
+                if (overlay) overlay.style.display = 'none';
             } else if (isFormValid) {
                 document.getElementById('cartPaypalDisabledOverlay').style.display = 'none';
                 if (cartPaypalActionsInstance) cartPaypalActionsInstance.enable();
@@ -2076,6 +2221,7 @@
                 alert('Payment could not be completed. Please try again or contact Coach Ben.');
             }
         }).render('#cart-paypal-button-container');
+        validateCartForm();
     }
 
     function loadSavedRegistrationDetails() {
@@ -2193,6 +2339,7 @@
             displayEventTime: false,
             eventContent: function(arg) {
                 const props = arg.event.extendedProps || {};
+                const inCart = !!props.inCart;
                 const cancelled = props.isCancelled ? '✕ ' : '';
                 const locked = props.access_code ? '🔒 ' : '';
                 const title = cancelled + locked + (props.sessionTitle || arg.event.title.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim());
@@ -2206,10 +2353,12 @@
                     return div.innerHTML;
                 };
 
+                const titleLine = inCart ? 'In cart 🛒' : title;
+
                 return {
                     html: `<div class="fc-event-stacked">
                         <div class="fc-event-stacked-time">${escape(timeText)}</div>
-                        <div class="fc-event-stacked-title">${escape(title)}</div>
+                        <div class="fc-event-stacked-title">${escape(titleLine)}</div>
                     </div>`
                 };
             },
@@ -2281,7 +2430,10 @@
                             const now = new Date();
                             const start = new Date(session.start_time);
                             const end = new Date(session.end_time);
-                            const { bg, border } = resolveEventColors(session, isCancelled, isFull, start, end, now);
+                            const inCart = !adminToken && isSessionInCart(session.id);
+                            const { bg, border } = inCart
+                                ? CART_EVENT_STYLE
+                                : resolveEventColors(session, isCancelled, isFull, start, end, now);
 
                             const countLabel = isCancelled
                                 ? `${session.active_count + session.waitlist_count} registered`
@@ -2295,7 +2447,8 @@
                                 backgroundColor: bg,
                                 borderColor: border,
                                 textColor: '#ffffff',
-                                extendedProps: { 
+                                classNames: inCart ? ['fc-event-in-cart'] : [],
+                                extendedProps: {
                                     sessionTitle: session.title,
                                     activeCount: session.active_count, 
                                     waitlistCount: session.waitlist_count, 
@@ -2308,14 +2461,16 @@
                                     custom_capacity: session.custom_capacity,
                                     location: session.location,
                                     cancelled_at: session.cancelled_at,
-                                    isCancelled
+                                    isCancelled,
+                                    inCart
                                 }
                             };
                         });
                         successCallback(events);
+                        applyCartVisualsToCalendar();
                     });
             },
-            eventClick: function(info) { handleEventSelectionSelection(info.event); },
+            eventClick: function(info) { handleCalendarEventClick(info.event); },
             dateClick: function(info) {
                 if (adminToken) return;
                 handleCalendarDayClick(info);
@@ -2403,6 +2558,10 @@
         link.classList.toggle('contact-coach-visible', scrolledPastCalendar);
     }
 
+    function isMobileCalendarView() {
+        return window.matchMedia('(max-width: 600px)').matches;
+    }
+
     function getEventsForCalendarDay(date) {
         const dayStart = new Date(date);
         dayStart.setHours(0, 0, 0, 0);
@@ -2414,6 +2573,23 @@
             const eventStart = new Date(event.start);
             return eventStart >= dayStart && eventStart <= dayEnd;
         }).sort((a, b) => a.start - b.start);
+    }
+
+    function handleCalendarEventClick(event) {
+        if (adminToken) {
+            handleEventSelectionSelection(event);
+            return;
+        }
+
+        if (isMobileCalendarView() && event.start) {
+            const dayEvents = getEventsForCalendarDay(event.start);
+            if (dayEvents.length > 1) {
+                openDayEventPickerModal(new Date(event.start), dayEvents);
+                return;
+            }
+        }
+
+        handleEventSelectionSelection(event);
     }
 
     function escapeHtml(text) {
@@ -3533,8 +3709,7 @@
             document.getElementById('calendarSubscribeBar').style.display = 'none';
             document.getElementById('filterBar').style.display = 'none';
             document.getElementById('coachScheduleFilter').style.display = 'flex';
-            document.getElementById('linkOpsDashboard').style.display = 'inline-block';
-            document.getElementById('linkRefundsCenter').style.display = 'inline-block';
+            document.getElementById('coachFooterNav').style.display = 'flex';
             stopCartAttention();
             updateCoachScheduleButtonUI(new URLSearchParams(window.location.search).get('schedule') || 'active');
         } else {
@@ -3546,8 +3721,7 @@
             document.getElementById('calendarSubscribeBar').style.display = 'flex';
             document.getElementById('filterBar').style.display = 'flex';
             document.getElementById('coachScheduleFilter').style.display = 'none';
-            document.getElementById('linkOpsDashboard').style.display = 'none';
-            document.getElementById('linkRefundsCenter').style.display = 'none';
+            document.getElementById('coachFooterNav').style.display = 'none';
             const url = new URL(window.location);
             url.searchParams.delete('schedule');
             window.history.replaceState({}, '', url);
