@@ -1326,7 +1326,14 @@ app.post('/api/paypal/create-order', async (req, res) => {
                 });
             }
 
-            amountValue = await computeRegistrationOrderTotal(normalizedItems, couponRow);
+            try {
+                amountValue = await computeRegistrationOrderTotal(normalizedItems, couponRow);
+            } catch (totalErr) {
+                if (totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE') {
+                    return res.status(400).json({ error: totalErr.message, code: totalErr.code });
+                }
+                throw totalErr;
+            }
             const sessionCount = normalizedItems.length;
             const playerCount = normalizedItems.reduce((sum, item) => sum + item.player_names.length, 0);
             description = `Hockey Training Cart (${sessionCount} session${sessionCount === 1 ? '' : 's'}, ${playerCount} player${playerCount === 1 ? '' : 's'})`;
@@ -1337,9 +1344,14 @@ app.post('/api/paypal/create-order', async (req, res) => {
                 `SELECT id, title, price, cancelled_at, archived_at FROM sessions WHERE id = ?`,
                 [session_id]
             );
-            if (!session) return res.status(400).json({ error: 'Session not found.' });
+            if (!session) {
+                return res.status(400).json({ error: 'Session not found.', code: 'SESSION_NOT_FOUND' });
+            }
             if (session.cancelled_at || session.archived_at) {
-                return res.status(400).json({ error: 'This session is no longer available for registration.' });
+                return res.status(400).json({
+                    error: 'This session is no longer available for registration.',
+                    code: 'SESSION_UNAVAILABLE'
+                });
             }
 
             const couponRow = await resolveCouponRow(coupon_code).catch((err) => {
@@ -1371,6 +1383,9 @@ app.post('/api/paypal/create-order', async (req, res) => {
         const orderData = await createPayPalCheckoutOrder({ amountValue, description, experienceContext });
         res.json({ id: orderData.id });
     } catch (err) {
+        if (err.code === 'SESSION_NOT_FOUND' || err.code === 'SESSION_UNAVAILABLE') {
+            return res.status(400).json({ error: err.message, code: err.code });
+        }
         console.error('[PAYPAL CREATE-ORDER ERROR]', err.message);
         res.status(500).json({ error: err.message || 'Unable to start PayPal checkout.' });
     }
@@ -1485,9 +1500,17 @@ app.post('/api/book', async (req, res) => {
         }
 
         db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at FROM sessions WHERE id = ?`, [session_id], async (sessionErr, session) => {
-            if (sessionErr || !session) return res.status(400).json({ error: "Target training event session matrix not found." });
+            if (sessionErr || !session) {
+                return res.status(400).json({
+                    error: "Target training event session matrix not found.",
+                    code: 'SESSION_NOT_FOUND'
+                });
+            }
             if (session.cancelled_at || session.archived_at) {
-                return res.status(400).json({ error: "This session is no longer available for registration." });
+                return res.status(400).json({
+                    error: "This session is no longer available for registration.",
+                    code: 'SESSION_UNAVAILABLE'
+                });
             }
 
             if (existing_booking_id) {
@@ -1593,7 +1616,7 @@ app.post('/api/book', async (req, res) => {
                 });
             } catch (registrationErr) {
                 if (registrationErr.code === 'CAPACITY_FULL' || registrationErr.code === 'SESSION_NOT_FOUND' || registrationErr.code === 'SESSION_UNAVAILABLE') {
-                    return res.status(400).json({ error: registrationErr.message });
+                    return res.status(400).json({ error: registrationErr.message, code: registrationErr.code });
                 }
                 console.error('[BOOK ERROR]', registrationErr.message);
                 return res.status(500).json({ error: registrationErr.message });
@@ -1662,7 +1685,10 @@ app.post('/api/book/batch', async (req, res) => {
             expectedTotal = await computeRegistrationOrderTotal(normalizedItems, couponRow);
         } catch (totalErr) {
             const status = totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE' ? 400 : 500;
-            return res.status(status).json({ error: totalErr.message });
+            return res.status(status).json({
+                error: totalErr.message,
+                ...(totalErr.code ? { code: totalErr.code } : {})
+            });
         }
 
         const finalOrderId = paypal_order_id
@@ -1718,7 +1744,10 @@ app.post('/api/book/batch', async (req, res) => {
                 || registrationErr.code === 'SESSION_UNAVAILABLE'
                 ? 400
                 : 500;
-            return res.status(status).json({ error: registrationErr.message });
+            return res.status(status).json({
+                error: registrationErr.message,
+                ...(registrationErr.code ? { code: registrationErr.code } : {})
+            });
         }
 
         const totalPaid = finalOrderId === 'WAITLIST_FREE' || finalOrderId === 'WAIVED_FREE'

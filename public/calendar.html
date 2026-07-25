@@ -1606,6 +1606,129 @@
     let cartVerifiedDiscountAmount = 0;
     let cartUnitPrices = {};
     let cartAttentionTimer = null;
+    let lastCalendarFocusRefreshAt = 0;
+    let suppressPayPalErrorAlert = false;
+    const CALENDAR_FOCUS_REFRESH_MS = 15000;
+
+    function getSessionsApiUrl() {
+        const currentUrlParams = new URLSearchParams(window.location.search);
+        const deepLinkSessionId = currentUrlParams.get('session_id');
+        if (adminToken) {
+            return `/api/sessions?token=${encodeURIComponent(adminToken)}`;
+        }
+        if (deepLinkSessionId) {
+            return `/api/sessions?session_id=${encodeURIComponent(deepLinkSessionId)}`;
+        }
+        return '/api/sessions';
+    }
+
+    async function fetchLiveSessions() {
+        const res = await fetch(getSessionsApiUrl());
+        if (!res.ok) throw new Error(`Sessions API returned ${res.status}`);
+        return res.json();
+    }
+
+    async function fetchLiveSessionById(sessionId) {
+        const sessions = await fetchLiveSessions();
+        return (sessions || []).find((session) => String(session.id) === String(sessionId)) || null;
+    }
+
+    function isSessionGoneError(dataOrErr) {
+        const code = dataOrErr && dataOrErr.code;
+        return code === 'SESSION_UNAVAILABLE' || code === 'SESSION_NOT_FOUND';
+    }
+
+    function notifySessionsNoLongerAvailable(removedItems) {
+        const count = Array.isArray(removedItems) ? removedItems.length : 0;
+        if (count > 1) {
+            alert('Some sessions in your cart are no longer available (they may have been cancelled) and were removed. Please review your cart before continuing.');
+        } else if (count === 1) {
+            const title = removedItems[0].title || 'That session';
+            alert(`"${title}" is no longer available for registration and was removed from your cart. The calendar has been refreshed.`);
+        } else {
+            alert('This session is no longer available for registration. It may have been cancelled. The calendar has been refreshed.');
+        }
+        if (calendar) calendar.refetchEvents();
+    }
+
+    async function pruneUnavailableCartItems() {
+        if (!registrationCart.length) return [];
+        const sessions = await fetchLiveSessions();
+        const liveIds = new Set((sessions || []).map((session) => String(session.id)));
+        const removed = registrationCart.filter((item) => !liveIds.has(String(item.sessionId)));
+        if (!removed.length) return [];
+        const removedIds = new Set(removed.map((item) => String(item.sessionId)));
+        registrationCart = registrationCart.filter((item) => !removedIds.has(String(item.sessionId)));
+        saveCartToStorage();
+        return removed;
+    }
+
+    async function ensureSelectedSessionAvailable() {
+        if (!selectedEvent || adminToken) return true;
+        try {
+            const live = await fetchLiveSessionById(selectedEvent.id);
+            if (!live) {
+                closeAllModals();
+                notifySessionsNoLongerAvailable();
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.warn('Unable to revalidate session availability:', err);
+            return true;
+        }
+    }
+
+    async function ensureCartSessionsAvailable() {
+        if (adminToken || !registrationCart.length) return true;
+        try {
+            const removed = await pruneUnavailableCartItems();
+            if (!removed.length) return true;
+            const cartModal = document.getElementById('cartCheckoutModal');
+            if (cartModal && cartModal.style.display === 'block') {
+                renderCartCheckoutUI();
+                validateCartForm();
+            }
+            if (!registrationCart.length) closeAllModals();
+            notifySessionsNoLongerAvailable(removed);
+            return false;
+        } catch (err) {
+            console.warn('Unable to revalidate cart availability:', err);
+            return true;
+        }
+    }
+
+    function handleBookingAvailabilityError(data, { isCart = false } = {}) {
+        if (!isSessionGoneError(data)) return false;
+        if (isCart) {
+            pruneUnavailableCartItems()
+                .then((removed) => {
+                    const cartModal = document.getElementById('cartCheckoutModal');
+                    if (cartModal && cartModal.style.display === 'block') {
+                        renderCartCheckoutUI();
+                        validateCartForm();
+                    }
+                    if (!registrationCart.length) closeAllModals();
+                    notifySessionsNoLongerAvailable(removed.length ? removed : null);
+                })
+                .catch(() => {
+                    closeAllModals();
+                    notifySessionsNoLongerAvailable();
+                });
+        } else {
+            closeAllModals();
+            notifySessionsNoLongerAvailable();
+        }
+        return true;
+    }
+
+    function refreshCalendarIfStale() {
+        if (!calendar) return;
+        const now = Date.now();
+        if (now - lastCalendarFocusRefreshAt < CALENDAR_FOCUS_REFRESH_MS) return;
+        lastCalendarFocusRefreshAt = now;
+        calendar.refetchEvents();
+    }
 
     function showSimulateCheckoutBanner() {
         if (!siteConfig.simulate_checkout || document.getElementById('simulateCheckoutBanner')) return;
@@ -1616,7 +1739,7 @@
         document.body.prepend(banner);
     }
 
-    function mountSimulatedCheckoutButton({ containerId, overlayId, label, getPayload, onPaid, validateFn, blockAlertFn }) {
+    function mountSimulatedCheckoutButton({ containerId, overlayId, label, getPayload, onPaid, validateFn, blockAlertFn, preflightFn }) {
         const container = document.getElementById(containerId);
         if (!container) return null;
 
@@ -1644,10 +1767,22 @@
             const originalText = btn.innerText;
             btn.innerText = 'Processing simulated payment...';
             try {
+                if (preflightFn) {
+                    const ok = await preflightFn();
+                    if (!ok) {
+                        btn.innerText = originalText;
+                        refresh();
+                        return;
+                    }
+                }
                 const orderId = await requestPayPalOrder(getPayload());
                 onPaid(orderId);
             } catch (err) {
-                alert(err.message || 'Simulated checkout failed.');
+                if (isSessionGoneError(err)) {
+                    handleBookingAvailabilityError(err, { isCart: containerId === 'cart-paypal-button-container' });
+                } else {
+                    alert(err.message || 'Simulated checkout failed.');
+                }
                 btn.innerText = originalText;
                 refresh();
             }
@@ -1937,8 +2072,9 @@
         });
     }
 
-    function addSelectedEventToCart() {
+    async function addSelectedEventToCart() {
         if (!selectedEvent || adminToken) return;
+        if (!(await ensureSelectedSessionAvailable())) return;
         const sessionId = String(selectedEvent.id);
         if (registrationCart.some((item) => item.sessionId === sessionId)) {
             alert('This session is already in your cart.');
@@ -2143,8 +2279,15 @@
         updateCartOrderTotalDisplay();
     }
 
-    function openCartCheckoutModal() {
+    async function openCartCheckoutModal() {
         if (adminToken) return;
+
+        let removed = [];
+        try {
+            removed = await pruneUnavailableCartItems();
+        } catch (err) {
+            console.warn('Unable to revalidate cart before checkout:', err);
+        }
 
         registrationCart.forEach((item) => ensureCartItemPlayerShape(item));
 
@@ -2169,6 +2312,10 @@
         document.getElementById('cartCouponFeedback').innerText = '';
 
         onCartGlobalPlayersChange();
+
+        if (removed.length) {
+            notifySessionsNoLongerAvailable(removed);
+        }
     }
 
     function mountSimulatedCartCheckoutButton() {
@@ -2189,7 +2336,8 @@
             },
             onPaid: (orderId) => submitCartBatch(orderId),
             validateFn: () => validateCartForm(),
-            blockAlertFn: alertCartPaymentBlocked
+            blockAlertFn: alertCartPaymentBlocked,
+            preflightFn: ensureCartSessionsAvailable
         });
     }
 
@@ -2416,9 +2564,12 @@
         };
     }
 
-    function submitCartBatch(orderId) {
+    async function submitCartBatch(orderId) {
         const total = computeCartGrandTotal();
         const finalOrderId = total <= 0 ? 'WAIVED_FREE' : orderId;
+        const isPaidOrder = finalOrderId && finalOrderId !== 'WAIVED_FREE' && finalOrderId !== 'WAITLIST_FREE';
+        if (!isPaidOrder && !(await ensureCartSessionsAvailable())) return;
+
         const payload = buildCartBatchPayload(finalOrderId);
 
         fetch('/api/book/batch', {
@@ -2429,6 +2580,7 @@
         .then(res => res.json())
         .then(data => {
             if (data.error) {
+                if (handleBookingAvailabilityError(data, { isCart: true })) return;
                 alert(data.error);
                 return;
             }
@@ -2517,16 +2669,29 @@
                     alertCartPaymentBlocked();
                 }
             },
-            createOrder: function() {
+            createOrder: async function() {
                 syncCartItemPlayersFromDOM();
                 persistCartState();
-                return requestPayPalOrder({
-                    cart_items: registrationCart.map((item) => ({
-                        session_id: parseInt(item.sessionId, 10),
-                        player_names: getCartItemPlayerNames(item)
-                    })),
-                    coupon_code: cartVerifiedCouponCode
-                });
+                const available = await ensureCartSessionsAvailable();
+                if (!available) {
+                    suppressPayPalErrorAlert = true;
+                    throw new Error('SESSION_UNAVAILABLE');
+                }
+                try {
+                    return await requestPayPalOrder({
+                        cart_items: registrationCart.map((item) => ({
+                            session_id: parseInt(item.sessionId, 10),
+                            player_names: getCartItemPlayerNames(item)
+                        })),
+                        coupon_code: cartVerifiedCouponCode
+                    });
+                } catch (err) {
+                    if (isSessionGoneError(err)) {
+                        suppressPayPalErrorAlert = true;
+                        handleBookingAvailabilityError(err, { isCart: true });
+                    }
+                    throw err;
+                }
             },
             onApprove: function(data, actions) {
                 return actions.order.capture().then(function(details) {
@@ -2534,6 +2699,10 @@
                 });
             },
             onError: function(err) {
+                if (suppressPayPalErrorAlert) {
+                    suppressPayPalErrorAlert = false;
+                    return;
+                }
                 console.error('Cart PayPal error:', err);
                 alert('Payment could not be completed. Please try again or contact Coach Ben.');
             }
@@ -2639,6 +2808,14 @@
         initContactCoachScrollVisibility();
         loadCartFromStorage();
 
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refreshCalendarIfStale();
+        });
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) refreshCalendarIfStale();
+        });
+        window.addEventListener('focus', refreshCalendarIfStale);
+
         window.addEventListener('resize', () => {
             if (document.getElementById('bookingModal').style.display === 'block'
                 || document.getElementById('createSlotModal').style.display === 'block'
@@ -2704,15 +2881,8 @@
                 const filterType = currentUrlParams.get('type');
                 const filterLocation = currentUrlParams.get('location');
                 const scheduleFilter = adminToken ? (currentUrlParams.get('schedule') || 'active') : 'active';
-                const deepLinkSessionId = currentUrlParams.get('session_id');
-                let sessionsUrl = '/api/sessions';
-                if (adminToken) {
-                    sessionsUrl = `/api/sessions?token=${encodeURIComponent(adminToken)}`;
-                } else if (deepLinkSessionId) {
-                    sessionsUrl = `/api/sessions?session_id=${encodeURIComponent(deepLinkSessionId)}`;
-                }
 
-                fetch(sessionsUrl)
+                fetch(getSessionsApiUrl())
                     .then(res => {
                         if (!res.ok) throw new Error(`Sessions API returned ${res.status}`);
                         return res.json();
@@ -3076,13 +3246,23 @@
         updateSessionOrderTotal();
     }
 
-    function handleEventSelectionSelection(event) {
+    async function handleEventSelectionSelection(event) {
         selectedEvent = event;
         const props = event.extendedProps;
         
         if (adminToken) {
             openBookingModal(event);
             return;
+        }
+
+        try {
+            const live = await fetchLiveSessionById(event.id);
+            if (!live) {
+                notifySessionsNoLongerAvailable();
+                return;
+            }
+        } catch (err) {
+            console.warn('Unable to revalidate session before opening overview:', err);
         }
 
         document.getElementById('overviewTitle').innerText = props.sessionTitle || event.title.split('(')[0].trim();
@@ -3140,7 +3320,8 @@
             .catch(() => {});
     }
 
-    function advanceFromOverviewToForm() {
+    async function advanceFromOverviewToForm() {
+        if (!(await ensureSelectedSessionAvailable())) return;
         document.getElementById('eventOverviewModal').style.display = 'none';
         openBookingModal(selectedEvent);
     }
@@ -3361,7 +3542,8 @@
                     }),
                     onPaid: (orderId) => submitBooking(orderId),
                     validateFn: () => isSingleSessionFormValid(),
-                    blockAlertFn: alertSingleSessionPaymentBlocked
+                    blockAlertFn: alertSingleSessionPaymentBlocked,
+                    preflightFn: ensureSelectedSessionAvailable
                 });
             }
             return;
@@ -3455,7 +3637,9 @@
         .then(res => res.json().then(data => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
             if (!ok || data.error || !data.id) {
-                throw new Error(data.error || 'Unable to start PayPal checkout.');
+                const err = new Error(data.error || 'Unable to start PayPal checkout.');
+                err.code = data.code;
+                throw err;
             }
             return data.id;
         });
@@ -3476,16 +3660,33 @@
                     alertSingleSessionPaymentBlocked();
                 }
             },
-            createOrder: function() {
+            createOrder: async function() {
+                const available = await ensureSelectedSessionAvailable();
+                if (!available) {
+                    suppressPayPalErrorAlert = true;
+                    throw new Error('SESSION_UNAVAILABLE');
+                }
                 const playerNames = getPlayerNamesFromList('playerNamesList');
-                return requestPayPalOrder({
-                    session_id: selectedEvent.id,
-                    coupon_code: verifiedCouponCode,
-                    player_count: Math.max(playerNames.length, 1)
-                });
+                try {
+                    return await requestPayPalOrder({
+                        session_id: selectedEvent.id,
+                        coupon_code: verifiedCouponCode,
+                        player_count: Math.max(playerNames.length, 1)
+                    });
+                } catch (err) {
+                    if (isSessionGoneError(err)) {
+                        suppressPayPalErrorAlert = true;
+                        handleBookingAvailabilityError(err);
+                    }
+                    throw err;
+                }
             },
             onApprove: function(data, actions) { return actions.order.capture().then(function(details) { submitBooking(details.id); }); },
             onError: function(err) {
+                if (suppressPayPalErrorAlert) {
+                    suppressPayPalErrorAlert = false;
+                    return;
+                }
                 console.error("PayPal Smart Button Exception Matrix:", err);
 
                 reportPaymentError(
@@ -3499,11 +3700,13 @@
         }).render('#paypal-button-container');
     }
 
-    function submitBooking(orderId) {
+    async function submitBooking(orderId) {
         const playerNames = getPlayerNamesFromList('playerNamesList');
         const unitTotal = currentSessionPrice;
         const grandTotal = unitTotal * Math.max(playerNames.length, 1);
         const finalOrderId = (grandTotal <= 0) ? 'WAIVED_FREE' : orderId;
+        const isPaidOrder = finalOrderId && finalOrderId !== 'WAIVED_FREE' && finalOrderId !== 'WAITLIST_FREE';
+        if (!isPaidOrder && !(await ensureSelectedSessionAvailable())) return;
 
         const payload = {
             session_id: selectedEvent.id,
@@ -3520,6 +3723,7 @@
             body: JSON.stringify(payload)
         }).then(res => res.json()).then(data => {
             if (data.error) {
+                if (handleBookingAvailabilityError(data)) return;
                 alert(data.error);
                 return;
             }
