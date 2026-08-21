@@ -1214,8 +1214,8 @@
     <div class="details-summary-box">
         <div class="details-summary-row"><span class="details-summary-label">📍 Rink Location:</span><span class="details-summary-value" id="overviewLocation">-</span></div>
         <div class="details-summary-row"><span class="details-summary-label">🗓️ Date & Time:</span><span class="details-summary-value" id="overviewTime">-</span></div>
-        <div class="details-summary-row"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
-        <div class="details-summary-row" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
+        <div class="details-summary-row" id="overviewStatusRow"><span class="details-summary-label">👥 Roster Allocation:</span><span class="details-summary-value" id="overviewStatus">-</span></div>
+        <div class="details-summary-row" id="overviewPriceRow" style="border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 4px;"><span class="details-summary-label" style="color:#0070ba; font-size:15px;">Session Cost:</span><span class="details-summary-value" style="color:#28a745; font-size:16px;" id="overviewPrice">$0.00</span></div>
     </div>
 
     <div class="overview-calendar-links" id="overviewCalendarLinks" style="display:none;">
@@ -1223,9 +1223,16 @@
         <a id="overviewIcsDownload" href="#">Download .ics</a>
     </div>
     
-    <div class="overview-actions">
+    <div class="overview-actions" id="overviewStandardActions">
         <button class="btn btn-primary" style="width: 100%; font-size: 15px; padding: 12px;" onclick="advanceFromOverviewToForm()">Proceed to Registration →</button>
         <button type="button" class="btn btn-secondary" style="padding: 12px;" onclick="addSelectedEventToCart()">Add to Cart 🛒</button>
+    </div>
+
+    <div id="overviewExternalActions" style="display:none;">
+        <div style="background:#eef6fc; border:1px solid #b6d4fe; border-radius:6px; padding:14px; font-size:13px; line-height:1.5; color:#084298; margin-bottom:14px;">
+            VMC Youth Skills registration and payment are handled on <strong>SportsEngine</strong>. Use the button below to continue on the correct signup form.
+        </div>
+        <a class="btn btn-primary" id="overviewSportsEngineLink" href="#" target="_blank" rel="noopener" style="display:block; width:100%; font-size:15px; padding:12px; text-align:center; text-decoration:none; box-sizing:border-box;">Register on SportsEngine →</a>
     </div>
 </div>
 
@@ -1244,6 +1251,14 @@
 
     <div id="coachCancelledBanner" class="coach-cancelled-banner">
         This session is cancelled — hidden from parents. Roster, refunds, and broadcast email are still available.
+    </div>
+
+    <div id="coachExternalRegistrationBanner" class="coach-access-code-banner" style="display:none; background:#eef6fc; border-color:#b6d4fe; color:#084298;" aria-live="polite">
+        <strong>SportsEngine registration</strong>
+        Parents are routed to SportsEngine for this VMC session — in-app PayPal checkout is disabled.
+        <div style="margin-top:8px;">
+            <a id="coachSportsEngineLink" href="#" target="_blank" rel="noopener" style="color:#084298; font-weight:bold;">Open SportsEngine form →</a>
+        </div>
     </div>
 
     <div id="coachAccessCodeBanner" class="coach-access-code-banner" aria-live="polite">
@@ -1457,11 +1472,22 @@
     </div>
     <div class="input-group">
         <label>Ice Rink Location *</label>
-        <select id="newLocation">
+        <select id="newLocation" onchange="syncSessionFormFieldsForLocation()">
             <option value="Sherwood Ice Arena">Sherwood Ice Arena</option>
             <option value="Winterhawks Skating Center - Beaverton">Winterhawks Skating Center - Beaverton</option>
             <option value="The Veterans Memorial Coliseum (VMC)">The Veterans Memorial Coliseum (VMC)</option>
         </select>
+    </div>
+    <div class="input-group" id="vmcSportsEngineGroup" style="display:none;">
+        <label>SportsEngine Registration Program *</label>
+        <select id="newVmcSportsEngineProgram">
+            <option value="">Select Monday/Tuesday + age group…</option>
+            <option value="https://wicadulthockey.sportngin.com/register/form/408139017">Youth Skills - Monday Evenings - VMC - 10U and Under</option>
+            <option value="https://wicadulthockey.sportngin.com/register/form/151650545">Youth Skills - Monday Evenings - VMC - 12U and Over</option>
+            <option value="https://wicadulthockey.sportngin.com/register/form/455438248">Youth Skills - Tuesday Evenings - VMC - 10U and Under</option>
+            <option value="https://wicadulthockey.sportngin.com/register/form/099393357">Youth Skills - Tuesday Evenings - VMC - 12U and Over</option>
+        </select>
+        <p class="session-form-hint" style="margin-top:6px;">Parents will be sent to this SportsEngine form instead of PayPal checkout on this site.</p>
     </div>
     <div class="input-group" id="newAccessCodeGroup"><label>Access Code Restriction (Optional)</label><input type="text" id="newAccessCode" placeholder="Optional code"></div>
     <p id="privateLessonFormHint" class="session-form-hint" style="display:none;">Private lessons are hidden from the public calendar. Share the event link with families after publishing.</p>
@@ -1581,6 +1607,36 @@
         "Winterhawks Skating Center - Beaverton": "9250 SW Beaverton Hillsdale Hwy, Beaverton, OR 97005",
         "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
     };
+
+    const VMC_LOCATION = "The Veterans Memorial Coliseum (VMC)";
+
+    const VMC_SPORTSENGINE_PROGRAMS = [
+        {
+            label: "Youth Skills - Monday Evenings - VMC - 10U and Under",
+            url: "https://wicadulthockey.sportngin.com/register/form/408139017"
+        },
+        {
+            label: "Youth Skills - Monday Evenings - VMC - 12U and Over",
+            url: "https://wicadulthockey.sportngin.com/register/form/151650545"
+        },
+        {
+            label: "Youth Skills - Tuesday Evenings - VMC - 10U and Under",
+            url: "https://wicadulthockey.sportngin.com/register/form/455438248"
+        },
+        {
+            label: "Youth Skills - Tuesday Evenings - VMC - 12U and Over",
+            url: "https://wicadulthockey.sportngin.com/register/form/099393357"
+        }
+    ];
+
+    function isExternalRegistrationSession(props) {
+        return !!(props && props.external_registration_url);
+    }
+
+    function getVmcProgramLabelForUrl(url) {
+        const match = VMC_SPORTSENGINE_PROGRAMS.find((p) => p.url === url);
+        return match ? match.label : null;
+    }
 
     const EVENT_COLOR_STYLES = {
         blue: { bg: '#0070ba', border: '#005fa3', fullBg: '#555555', fullBorder: '#444444' },
@@ -2074,6 +2130,10 @@
 
     async function addSelectedEventToCart() {
         if (!selectedEvent || adminToken) return;
+        if (isExternalRegistrationSession(selectedEvent.extendedProps)) {
+            alert('VMC sessions register on SportsEngine and cannot be added to the cart.');
+            return;
+        }
         if (!(await ensureSelectedSessionAvailable())) return;
         const sessionId = String(selectedEvent.id);
         if (registrationCart.some((item) => item.sessionId === sessionId)) {
@@ -2789,6 +2849,17 @@
         if (isPrivate) document.getElementById('newAccessCode').value = '';
     }
 
+    function syncSessionFormFieldsForLocation() {
+        const location = document.getElementById('newLocation').value;
+        const isVmc = location === VMC_LOCATION;
+        const group = document.getElementById('vmcSportsEngineGroup');
+        const programSelect = document.getElementById('newVmcSportsEngineProgram');
+        group.style.display = isVmc ? 'block' : 'none';
+        if (!isVmc) {
+            programSelect.value = '';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
         const initialSchedule = urlParams.get('schedule') || 'active';
@@ -2929,13 +3000,16 @@
                                 ? CART_EVENT_STYLE
                                 : resolveEventColors(session, isCancelled, isFull, start, end, now);
 
+                            const isExternalRegistration = !!session.external_registration_url;
                             const countLabel = isCancelled
                                 ? `${session.active_count + session.waitlist_count} registered`
-                                : `${session.active_count}/${targetCap}`;
+                                : (isExternalRegistration ? 'SportsEngine' : `${session.active_count}/${targetCap}`);
 
                             return {
                                 id: session.id,
-                                title: `${titlePrefix}${session.title} (${countLabel})`,
+                                title: isExternalRegistration && !isCancelled
+                                    ? `${titlePrefix}${session.title}`
+                                    : `${titlePrefix}${session.title} (${countLabel})`,
                                 start: session.start_time,
                                 end: session.end_time,
                                 backgroundColor: bg,
@@ -2954,12 +3028,26 @@
                                     maxWaitlist: targetWaitlistCap,
                                     custom_capacity: session.custom_capacity,
                                     location: session.location,
+                                    external_registration_url: session.external_registration_url || null,
                                     cancelled_at: session.cancelled_at,
                                     isCancelled,
                                     inCart
                                 }
                             };
                         });
+
+                        if (!adminToken) {
+                            const externalIds = new Set(
+                                filteredData
+                                    .filter((s) => s.external_registration_url)
+                                    .map((s) => String(s.id))
+                            );
+                            if (externalIds.size && registrationCart.some((item) => externalIds.has(String(item.sessionId)))) {
+                                registrationCart = registrationCart.filter((item) => !externalIds.has(String(item.sessionId)));
+                                saveCartToStorage();
+                            }
+                        }
+
                         successCallback(events);
                         applyCartVisualsToCalendar();
                     })
@@ -3274,8 +3362,26 @@
         const parsedDate = new Date(event.start);
         document.getElementById('overviewTime').innerText = parsedDate.toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
         
+        const isExternal = isExternalRegistrationSession(props);
+        document.getElementById('overviewStatusRow').style.display = isExternal ? 'none' : 'flex';
+        document.getElementById('overviewPriceRow').style.display = isExternal ? 'none' : 'flex';
         document.getElementById('overviewStatus').innerText = `Active: ${props.activeCount}/${props.maxActive} Spots Taken`;
         document.getElementById('overviewPrice').innerText = props.price > 0 ? `$${props.price.toFixed(2)}` : "Free / Waitlist Entry";
+
+        document.getElementById('overviewStandardActions').style.display = isExternal ? 'none' : 'flex';
+        const externalActions = document.getElementById('overviewExternalActions');
+        const sportsEngineLink = document.getElementById('overviewSportsEngineLink');
+        if (isExternal) {
+            sportsEngineLink.href = props.external_registration_url;
+            const programLabel = getVmcProgramLabelForUrl(props.external_registration_url);
+            sportsEngineLink.innerText = programLabel
+                ? `Register on SportsEngine (${programLabel.includes('10U') ? '10U & Under' : '12U & Over'}) →`
+                : 'Register on SportsEngine →';
+            externalActions.style.display = 'block';
+        } else {
+            sportsEngineLink.href = '#';
+            externalActions.style.display = 'none';
+        }
 
         loadOverviewCalendarLinks(event.id);
 
@@ -3322,6 +3428,11 @@
 
     async function advanceFromOverviewToForm() {
         if (!(await ensureSelectedSessionAvailable())) return;
+        if (isExternalRegistrationSession(selectedEvent?.extendedProps)) {
+            const url = selectedEvent.extendedProps.external_registration_url;
+            if (url) window.open(url, '_blank', 'noopener');
+            return;
+        }
         document.getElementById('eventOverviewModal').style.display = 'none';
         openBookingModal(selectedEvent);
     }
@@ -3363,6 +3474,20 @@
 
         const cancelledBanner = document.getElementById('coachCancelledBanner');
         cancelledBanner.style.display = (adminToken && isCancelled) ? 'block' : 'none';
+
+        const externalBanner = document.getElementById('coachExternalRegistrationBanner');
+        const coachSportsEngineLink = document.getElementById('coachSportsEngineLink');
+        if (adminToken && isExternalRegistrationSession(props)) {
+            coachSportsEngineLink.href = props.external_registration_url;
+            const programLabel = getVmcProgramLabelForUrl(props.external_registration_url);
+            coachSportsEngineLink.innerText = programLabel
+                ? `Open SportsEngine form (${programLabel}) →`
+                : 'Open SportsEngine form →';
+            externalBanner.style.display = 'block';
+        } else {
+            coachSportsEngineLink.href = '#';
+            externalBanner.style.display = 'none';
+        }
 
         const accessBanner = document.getElementById('coachAccessCodeBanner');
         const privateBanner = document.getElementById('coachPrivateLessonBanner');
@@ -3777,6 +3902,8 @@
         setSelectedEventColor('blue');
         syncSessionFormFieldsForEventType();
         document.getElementById('newLocation').selectedIndex = 0;
+        document.getElementById('newVmcSportsEngineProgram').value = '';
+        syncSessionFormFieldsForLocation();
         document.getElementById('overlay').style.display = 'block';
         document.getElementById('createSlotModal').style.display = 'block';
     }
@@ -3791,6 +3918,8 @@
         setSelectedEventColor(props.event_color || 'blue');
         syncSessionFormFieldsForEventType();
         document.getElementById('newLocation').value = props.location || 'Sherwood Ice Arena';
+        document.getElementById('newVmcSportsEngineProgram').value = props.external_registration_url || '';
+        syncSessionFormFieldsForLocation();
         document.getElementById('newAccessCode').value = props.access_code || '';
         document.getElementById('newStart').value = toDatetimeLocalValue(selectedEvent.start);
         document.getElementById('newEnd').value = toDatetimeLocalValue(selectedEvent.end);
@@ -3811,6 +3940,13 @@
             return;
         }
 
+        const location = document.getElementById('newLocation').value;
+        const externalRegistrationUrl = document.getElementById('newVmcSportsEngineProgram').value.trim();
+        if (location === VMC_LOCATION && !externalRegistrationUrl) {
+            alert('Select a SportsEngine registration program for VMC sessions.');
+            return;
+        }
+
         const title = document.getElementById('newTitle').value.trim() || 'Skills Session';
         const confirmMessage = sessionFormMode === 'edit'
             ? `Save changes to "${title}"?\n\nThis updates the session on the live calendar.`
@@ -3822,7 +3958,8 @@
             title: document.getElementById('newTitle').value.trim() || 'Skills Session',
             event_type: document.getElementById('newEventType').value,
             event_color: getSelectedEventColor(),
-            location: document.getElementById('newLocation').value,
+            location,
+            external_registration_url: location === VMC_LOCATION ? externalRegistrationUrl : null,
             access_code: document.getElementById('newAccessCode').value,
             start_time: startVal,
             end_time: endVal,

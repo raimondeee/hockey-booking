@@ -38,6 +38,36 @@ const LOCATION_ADDRESS_MAP = {
     "The Veterans Memorial Coliseum (VMC)": "300 N Winning Way, Portland, OR 97227"
 };
 
+const VMC_LOCATION = "The Veterans Memorial Coliseum (VMC)";
+
+const VMC_SPORTSENGINE_URLS = new Set([
+    "https://wicadulthockey.sportngin.com/register/form/408139017",
+    "https://wicadulthockey.sportngin.com/register/form/151650545",
+    "https://wicadulthockey.sportngin.com/register/form/455438248",
+    "https://wicadulthockey.sportngin.com/register/form/099393357"
+]);
+
+function normalizeExternalRegistrationUrl(location, externalRegistrationUrl) {
+    const url = externalRegistrationUrl ? String(externalRegistrationUrl).trim() : '';
+    if (location !== VMC_LOCATION) return null;
+    if (!url || !VMC_SPORTSENGINE_URLS.has(url)) {
+        const err = new Error('VMC sessions require a valid SportsEngine registration program.');
+        err.code = 'INVALID_EXTERNAL_REGISTRATION';
+        throw err;
+    }
+    return url;
+}
+
+function assertSessionAllowsInAppRegistration(session) {
+    if (session && session.external_registration_url) {
+        const err = new Error(
+            'This VMC session registers on SportsEngine, not through this site. Open the session from the calendar to continue.'
+        );
+        err.code = 'EXTERNAL_REGISTRATION_REQUIRED';
+        throw err;
+    }
+}
+
 function normalizeEventColor(color) {
     const value = String(color || 'blue').toLowerCase();
     if (value === 'red' || value === 'green') return value;
@@ -375,7 +405,7 @@ async function processSessionRegistration({
     siteSettings
 }) {
     const session = await dbGet(
-        `SELECT id, title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at
+        `SELECT id, title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at, external_registration_url
          FROM sessions WHERE id = ?`,
         [session_id]
     );
@@ -389,6 +419,7 @@ async function processSessionRegistration({
         err.code = 'SESSION_UNAVAILABLE';
         throw err;
     }
+    assertSessionAllowsInAppRegistration(session);
 
     const { maxActive, maxWaitlist } = getSessionCapacityLimits(session, siteSettings);
     const counts = await getSessionCounts(session_id);
@@ -438,7 +469,7 @@ async function computeRegistrationOrderTotal(items, couponRow) {
     let total = 0;
     for (const item of items) {
         const session = await dbGet(
-            `SELECT id, price, cancelled_at, archived_at FROM sessions WHERE id = ?`,
+            `SELECT id, price, cancelled_at, archived_at, external_registration_url FROM sessions WHERE id = ?`,
             [item.session_id]
         );
         if (!session) {
@@ -450,6 +481,11 @@ async function computeRegistrationOrderTotal(items, couponRow) {
             const err = new Error('One or more sessions in your cart are no longer available.');
             err.code = 'SESSION_UNAVAILABLE';
             throw err;
+        }
+        try {
+            assertSessionAllowsInAppRegistration(session);
+        } catch (externalErr) {
+            throw externalErr;
         }
         const unitPrice = computeDiscountedPrice(session.price, couponRow);
         total += unitPrice * item.player_names.length;
@@ -1329,7 +1365,7 @@ app.post('/api/paypal/create-order', async (req, res) => {
             try {
                 amountValue = await computeRegistrationOrderTotal(normalizedItems, couponRow);
             } catch (totalErr) {
-                if (totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE') {
+                if (totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE' || totalErr.code === 'EXTERNAL_REGISTRATION_REQUIRED') {
                     return res.status(400).json({ error: totalErr.message, code: totalErr.code });
                 }
                 throw totalErr;
@@ -1341,7 +1377,7 @@ app.post('/api/paypal/create-order', async (req, res) => {
             if (!session_id) return res.status(400).json({ error: 'session_id is required.' });
 
             const session = await dbGet(
-                `SELECT id, title, price, cancelled_at, archived_at FROM sessions WHERE id = ?`,
+                `SELECT id, title, price, cancelled_at, archived_at, external_registration_url FROM sessions WHERE id = ?`,
                 [session_id]
             );
             if (!session) {
@@ -1352,6 +1388,11 @@ app.post('/api/paypal/create-order', async (req, res) => {
                     error: 'This session is no longer available for registration.',
                     code: 'SESSION_UNAVAILABLE'
                 });
+            }
+            try {
+                assertSessionAllowsInAppRegistration(session);
+            } catch (externalErr) {
+                return res.status(400).json({ error: externalErr.message, code: externalErr.code });
             }
 
             const couponRow = await resolveCouponRow(coupon_code).catch((err) => {
@@ -1383,7 +1424,7 @@ app.post('/api/paypal/create-order', async (req, res) => {
         const orderData = await createPayPalCheckoutOrder({ amountValue, description, experienceContext });
         res.json({ id: orderData.id });
     } catch (err) {
-        if (err.code === 'SESSION_NOT_FOUND' || err.code === 'SESSION_UNAVAILABLE') {
+        if (err.code === 'SESSION_NOT_FOUND' || err.code === 'SESSION_UNAVAILABLE' || err.code === 'EXTERNAL_REGISTRATION_REQUIRED') {
             return res.status(400).json({ error: err.message, code: err.code });
         }
         console.error('[PAYPAL CREATE-ORDER ERROR]', err.message);
@@ -1499,7 +1540,7 @@ app.post('/api/book', async (req, res) => {
             return res.status(500).json({ error: "Unable to complete security processing with merchant gateway." });
         }
 
-        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at FROM sessions WHERE id = ?`, [session_id], async (sessionErr, session) => {
+        db.get(`SELECT title, start_time, end_time, location, event_type, custom_capacity, price, cancelled_at, archived_at, external_registration_url FROM sessions WHERE id = ?`, [session_id], async (sessionErr, session) => {
             if (sessionErr || !session) {
                 return res.status(400).json({
                     error: "Target training event session matrix not found.",
@@ -1511,6 +1552,11 @@ app.post('/api/book', async (req, res) => {
                     error: "This session is no longer available for registration.",
                     code: 'SESSION_UNAVAILABLE'
                 });
+            }
+            try {
+                assertSessionAllowsInAppRegistration(session);
+            } catch (externalErr) {
+                return res.status(400).json({ error: externalErr.message, code: externalErr.code });
             }
 
             if (existing_booking_id) {
@@ -1615,7 +1661,7 @@ app.post('/api/book', async (req, res) => {
                     booking_id: result.bookings[0]?.booking_id
                 });
             } catch (registrationErr) {
-                if (registrationErr.code === 'CAPACITY_FULL' || registrationErr.code === 'SESSION_NOT_FOUND' || registrationErr.code === 'SESSION_UNAVAILABLE') {
+                if (registrationErr.code === 'CAPACITY_FULL' || registrationErr.code === 'SESSION_NOT_FOUND' || registrationErr.code === 'SESSION_UNAVAILABLE' || registrationErr.code === 'EXTERNAL_REGISTRATION_REQUIRED') {
                     return res.status(400).json({ error: registrationErr.message, code: registrationErr.code });
                 }
                 console.error('[BOOK ERROR]', registrationErr.message);
@@ -1684,7 +1730,11 @@ app.post('/api/book/batch', async (req, res) => {
         try {
             expectedTotal = await computeRegistrationOrderTotal(normalizedItems, couponRow);
         } catch (totalErr) {
-            const status = totalErr.code === 'SESSION_NOT_FOUND' || totalErr.code === 'SESSION_UNAVAILABLE' ? 400 : 500;
+            const status = totalErr.code === 'SESSION_NOT_FOUND'
+                || totalErr.code === 'SESSION_UNAVAILABLE'
+                || totalErr.code === 'EXTERNAL_REGISTRATION_REQUIRED'
+                ? 400
+                : 500;
             return res.status(status).json({
                 error: totalErr.message,
                 ...(totalErr.code ? { code: totalErr.code } : {})
@@ -1742,6 +1792,7 @@ app.post('/api/book/batch', async (req, res) => {
             const status = registrationErr.code === 'CAPACITY_FULL'
                 || registrationErr.code === 'SESSION_NOT_FOUND'
                 || registrationErr.code === 'SESSION_UNAVAILABLE'
+                || registrationErr.code === 'EXTERNAL_REGISTRATION_REQUIRED'
                 ? 400
                 : 500;
             return res.status(status).json({
@@ -1830,7 +1881,7 @@ function verifyAdminToken(req, res, next) {
 
 // 5. Admin Portal: Create an empty calendar slot
 app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
-    const { title, start_time, end_time, price, event_type, access_code, location, event_color } = req.body;
+    const { title, start_time, end_time, price, event_type, access_code, location, event_color, external_registration_url } = req.body;
     const type = event_type || 'large';
     const color = normalizeEventColor(event_color);
     const cleanAccessCode = type === 'private'
@@ -1838,11 +1889,18 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
         : (access_code && access_code.trim() ? access_code.trim() : null);
     const defaultCapacity = type === 'private' ? 5 : null;
 
-    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location, event_color, custom_capacity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    let externalUrl;
+    try {
+        externalUrl = normalizeExternalRegistrationUrl(location || null, external_registration_url);
+    } catch (normErr) {
+        return res.status(400).json({ error: normErr.message, code: normErr.code });
+    }
+
+    const insertQuery = `INSERT INTO sessions (title, start_time, end_time, price, event_type, access_code, location, event_color, custom_capacity, external_registration_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     db.run(
         insertQuery,
-        [title, start_time, end_time, price, type, cleanAccessCode, location || null, color, defaultCapacity],
+        [title, start_time, end_time, price, type, cleanAccessCode, location || null, color, defaultCapacity, externalUrl],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true, id: this.lastID });
@@ -1853,7 +1911,7 @@ app.post('/api/admin/sessions', verifyAdminToken, (req, res) => {
 // 5a. Admin Portal: Update an existing session (time, location, price, etc.)
 app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     const sessionId = req.params.id;
-    const { title, start_time, end_time, price, event_type, access_code, location, event_color } = req.body;
+    const { title, start_time, end_time, price, event_type, access_code, location, event_color, external_registration_url } = req.body;
 
     if (!title || !start_time || !end_time) {
         return res.status(400).json({ error: 'Title, start time, and end time are required.' });
@@ -1870,6 +1928,13 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
     const cleanAccessCode = type === 'private'
         ? null
         : (access_code && access_code.trim() ? access_code.trim() : null);
+
+    let externalUrl;
+    try {
+        externalUrl = normalizeExternalRegistrationUrl(location || null, external_registration_url);
+    } catch (normErr) {
+        return res.status(400).json({ error: normErr.message, code: normErr.code });
+    }
 
     db.get(
         `SELECT s.custom_capacity,
@@ -1889,9 +1954,9 @@ app.put('/api/admin/sessions/:id', verifyAdminToken, (req, res) => {
 
             db.run(
                 `UPDATE sessions
-                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?, event_color = ?
+                 SET title = ?, start_time = ?, end_time = ?, price = ?, event_type = ?, access_code = ?, location = ?, event_color = ?, external_registration_url = ?
                  WHERE id = ?`,
-                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, color, sessionId],
+                [title.trim(), start_time, end_time, parseFloat(price), type, cleanAccessCode, location || null, color, externalUrl, sessionId],
                 function(updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.message });
                     if (this.changes === 0) return res.status(404).json({ error: 'Session not found.' });
